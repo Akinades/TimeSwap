@@ -1,0 +1,45 @@
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AppProvider, useApp } from './context/AppContext'
+import { I18nProvider } from './i18n/I18nContext'
+import Layout from './components/Layout'
+import CompanySetup from './pages/CompanySetup'
+import Dashboard from './pages/Dashboard'
+import Attendance from './pages/Attendance'
+import ShiftSwap from './pages/ShiftSwap'
+import Summary from './pages/Summary'
+import CompanyProfile from './pages/CompanyProfile'
+import Employees from './pages/Employees'
+
+function AppRoutes() {
+  const { hasCompany } = useApp()
+
+  if (!hasCompany) {
+    return <CompanySetup />
+  }
+
+  return (
+    <Routes>
+      <Route element={<Layout />}>
+        <Route index element={<Dashboard />} />
+        <Route path="employees" element={<Employees />} />
+        <Route path="attendance" element={<Attendance />} />
+        <Route path="swaps" element={<ShiftSwap />} />
+        <Route path="calendar" element={<Navigate to="/swaps" replace />} />
+        <Route path="summary" element={<Summary />} />
+        <Route path="profile" element={<CompanyProfile />} />
+      </Route>
+    </Routes>
+  )
+}
+
+export default function App() {
+  return (
+    <I18nProvider>
+      <AppProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </AppProvider>
+    </I18nProvider>
+  )
+}
