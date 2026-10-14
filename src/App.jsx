@@ -110,11 +110,13 @@ function AuthGate() {
   )
 }
 
+const routerBasename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/'
+
 export default function App() {
   return (
     <I18nProvider>
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBasename === '/' ? undefined : routerBasename}>
           <AuthGate />
         </BrowserRouter>
       </AuthProvider>

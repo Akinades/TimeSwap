@@ -34,27 +34,36 @@ On first start, an admin is created from `.env` (`AUTH_USERNAME` / `AUTH_PASSWOR
 Each login account has its **own workspace** (companies / attendance). New users start empty.  
 Manage accounts from the **Admin** login tab → `/accounts`.
 
-## Production / GitHub deploy
+## Production / GitHub Pages
 
-GitHub Pages is **static only** — it cannot hide MongoDB credentials. Use this pattern:
+### Why the site was blank / `main.jsx` 404
 
-1. Host the **API + built frontend** together (Railway, Render, Fly.io, VPS, etc.).
-2. Build then start:
+GitHub Pages was set to **Deploy from a branch → `main` / (root)**.  
+That serves the **source** `index.html`, which points at `/src/main.jsx`.  
+Browsers cannot run JSX — you must deploy the **Vite `dist/` build**.
+
+### Fix (recommended)
+
+1. In repo **Settings → Pages → Build and deployment → Source**, choose **GitHub Actions** (not “Deploy from a branch”).
+2. Push to `main` — workflow `.github/workflows/deploy-pages.yml` builds with `VITE_BASE=/TimeSwap/` and deploys `dist/`.
+3. Site URL: `https://<user>.github.io/TimeSwap/`
+
+GitHub Pages is **static only** — it does **not** run Express/MongoDB.  
+Host the API separately (Railway, Render, Fly.io, VPS), then set a repo variable:
+
+- **Settings → Secrets and variables → Actions → Variables**  
+  `VITE_API_BASE` = `https://your-api-host/api`
+
+Never put `MONGODB_URI`, `AUTH_PASSWORD`, or `AUTH_SECRET` in the frontend.
+
+### Host API + frontend together (simpler for login)
 
 ```bash
 npm run build
 npm start
 ```
 
-The Express server serves `dist/` and protects `/api/workspace` behind login.
-
-If the frontend is hosted separately, set:
-
-```env
-VITE_API_BASE=https://your-api-host/api
-```
-
-and rebuild. Never put `MONGODB_URI`, `AUTH_PASSWORD`, or `AUTH_SECRET` in the frontend or in a public repo.
+Express serves `dist/` and `/api`. Use `VITE_BASE=/` (default) for that setup.
 
 ## Pages
 
