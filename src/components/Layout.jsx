@@ -11,8 +11,10 @@ import {
   X,
   Settings,
   History,
+  Shield,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n/I18nContext'
 import AccountMenu from './AccountMenu'
 
@@ -24,6 +26,7 @@ const PAGE_TITLES = [
   { path: '/summary', labelKey: 'nav.reports' },
   { path: '/profile', labelKey: 'profile.title' },
   { path: '/history', labelKey: 'flow.history' },
+  { path: '/accounts', labelKey: 'nav.accounts' },
 ]
 
 function pageTitleKey(pathname) {
@@ -35,7 +38,8 @@ function pageTitleKey(pathname) {
 
 export default function Layout() {
   const { t } = useI18n()
-  const { loadError, saving } = useApp()
+  const { loadError, saving, hasCompany } = useApp()
+  const { isAdmin } = useAuth()
   const { pathname } = useLocation()
   const titleKey = pageTitleKey(pathname)
   const [menuOpen, setMenuOpen] = useState(false)
@@ -43,18 +47,26 @@ export default function Layout() {
     setMenuOpen(false)
   }, [pathname])
 
-  const navItems = [
-    { to: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, end: true },
-    { to: '/employees', labelKey: 'nav.employees', icon: Users },
-    { to: '/attendance', labelKey: 'nav.attendance', icon: ClipboardList },
-    { to: '/swaps', labelKey: 'nav.swaps', icon: CalendarDays },
-    { to: '/summary', labelKey: 'nav.reports', icon: FileBarChart },
-
-  ]
+  const navItems = hasCompany
+    ? [
+        { to: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard, end: true },
+        { to: '/employees', labelKey: 'nav.employees', icon: Users },
+        { to: '/attendance', labelKey: 'nav.attendance', icon: ClipboardList },
+        { to: '/swaps', labelKey: 'nav.swaps', icon: CalendarDays },
+        { to: '/summary', labelKey: 'nav.reports', icon: FileBarChart },
+      ]
+    : []
 
   const secondaryItems = [
-    { to: '/history', labelKey: 'flow.history', icon: History },
-    { to: '/profile', labelKey: 'flow.settings', icon: Settings },
+    ...(hasCompany
+      ? [
+          { to: '/history', labelKey: 'flow.history', icon: History },
+          { to: '/profile', labelKey: 'flow.settings', icon: Settings },
+        ]
+      : []),
+    ...(isAdmin
+      ? [{ to: '/accounts', labelKey: 'nav.accounts', icon: Shield }]
+      : []),
   ]
   const navigationLink = ({ to, labelKey, icon: Icon, end }) => (
     <NavLink key={to} to={to} end={end} onClick={() => setMenuOpen(false)}

@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Building2, Clock } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Building2, Clock, Shield } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useAuth } from '../context/AuthContext'
 import { useI18n } from '../i18n/I18nContext'
-import LanguageSwitcher from '../components/LanguageSwitcher'
 
 export default function CompanySetup() {
   const { addCompany } = useApp()
+  const { isAdmin } = useAuth()
   const { t } = useI18n()
   const [name, setName] = useState('')
   const [error, setError] = useState('')
@@ -20,11 +22,8 @@ export default function CompanySetup() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-teal-50 to-slate-200 px-4">
-      <div className="absolute top-4 right-4">
-        <LanguageSwitcher />
-      </div>
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-lg">
+    <div className="mx-auto flex w-full max-w-md flex-col items-center px-2 py-8">
+      <div className="w-full rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="mb-6 flex flex-col items-center text-center">
           <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-teal-500 text-white">
             <Clock className="h-6 w-6" />
@@ -62,6 +61,16 @@ export default function CompanySetup() {
         <p className="mt-5 text-center text-xs text-slate-400">
           {t('company.setupHint')}
         </p>
+
+        {isAdmin ? (
+          <Link
+            to="/accounts"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 py-2.5 text-sm font-medium text-violet-800 hover:bg-violet-100"
+          >
+            <Shield className="h-4 w-4" />
+            {t('auth.manageUsers')}
+          </Link>
+        ) : null}
       </div>
     </div>
   )

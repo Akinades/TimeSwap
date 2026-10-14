@@ -109,44 +109,23 @@ export function AppProvider({ children }) {
         const remote = await fetchWorkspace()
         if (cancelled) return
 
-        const hasRemote =
-          Array.isArray(remote?.companies) && remote.companies.length > 0
-
-        if (hasRemote) {
-          skipNextSave.current = true
-          setCompanies(remote.companies)
-          setActiveCompanyId(remote.activeCompanyId ?? remote.companies[0]?.id ?? null)
-          clearLocalWorkspace()
-        } else {
-          const local = readLocalWorkspace()
-          if (local?.companies?.length) {
-            skipNextSave.current = true
-            setCompanies(local.companies)
-            setActiveCompanyId(
-              local.activeCompanyId ?? local.companies[0]?.id ?? null,
-            )
-            await saveWorkspace(local)
-            clearLocalWorkspace()
-          } else {
-            skipNextSave.current = true
-            setCompanies([])
-            setActiveCompanyId(null)
-          }
-        }
+        // Each login account has its own workspace — never seed from shared localStorage
+        skipNextSave.current = true
+        const companiesRemote = Array.isArray(remote?.companies)
+          ? remote.companies
+          : []
+        setCompanies(companiesRemote)
+        setActiveCompanyId(
+          remote?.activeCompanyId ?? companiesRemote[0]?.id ?? null,
+        )
+        clearLocalWorkspace()
         setLoadError(null)
       } catch (err) {
         if (cancelled) return
-        const local = readLocalWorkspace()
-        if (local?.companies) {
-          skipNextSave.current = true
-          setCompanies(local.companies)
-          setActiveCompanyId(local.activeCompanyId ?? null)
-          setLoadError(
-            `เชื่อมต่อ MongoDB ไม่ได้ — ใช้ข้อมูลในเครื่องชั่วคราว (${err.message})`,
-          )
-        } else {
-          setLoadError(err.message || 'โหลดข้อมูลไม่สำเร็จ')
-        }
+        skipNextSave.current = true
+        setCompanies([])
+        setActiveCompanyId(null)
+        setLoadError(err.message || 'โหลดข้อมูลไม่สำเร็จ')
       } finally {
         if (!cancelled) setReady(true)
       }
