@@ -1,13 +1,67 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Segoe UI", "Sarabun", system-ui, sans-serif;
+  font-family: 'Segoe UI', 'Sarabun', system-ui, sans-serif;
   background-color: #f1f5f9;
   color: #0f172a;
 }
 
 #root {
   min-height: 100vh;
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40;
+  }
+}
+button,
+a,
+input,
+select,
+summary {
+  -webkit-tap-highlight-color: transparent;
+}
+:focus-visible {
+  outline: 2px solid #0d9488;
+  outline-offset: 3px;
+}
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  [class*='fixed inset-0'] {
+    overflow-y: auto;
+  }
+}
+
+/* Dedicated settings layout: preserve one form while arranging its sections. */
+.settings-shift-form > form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+}
+.settings-shift-form > form > * {
+  margin-block: 0;
+  min-width: 0;
+}
+.settings-shift-form > form > div {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 1.25rem;
+}
+@media (min-width: 1280px) {
+  .settings-shift-form > form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .settings-shift-form > form > :nth-child(n + 5) {
+    grid-column: 1 / -1;
+  }
 }

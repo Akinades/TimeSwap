@@ -1,3 +1,5 @@
+import { workflowCopy } from './workflow'
+
 export const LANGS = [
   { code: 'th', label: 'ไทย', short: 'TH' },
   { code: 'en', label: 'English', short: 'EN' },
@@ -23,7 +25,7 @@ export const translations = {
     'company.save': 'บันทึก',
     'company.setupTitle': 'เริ่มต้นด้วยการตั้งชื่อบริษัทของคุณ',
     'company.setupCta': 'เริ่มใช้งาน',
-    'company.setupHint': 'ข้อมูลบริษัทจะถูกเก็บในเครื่องนี้ (localStorage)',
+    'company.setupHint': 'ข้อมูลบริษัทจะถูกเก็บบน MongoDB Atlas',
     'company.nameRequired': 'กรุณากรอกชื่อบริษัท',
 
     'common.cancel': 'ยกเลิก',
@@ -58,10 +60,12 @@ export const translations = {
     'dash.companyLabel': 'บริษัท',
     'dash.welcome': 'สรุปเข้างาน สลับกะ และนำเข้าไฟล์ Hiptime ของบริษัทนี้',
     'dash.todayTitle': 'วันนี้',
-    'dash.subtitle': 'นำเข้าไฟล์ Hiptime จริง แล้วดูสรุปเข้างาน สลับกะ และส่งออกรายงาน',
+    'dash.subtitle':
+      'นำเข้าไฟล์ Hiptime จริง แล้วดูสรุปเข้างาน สลับกะ และส่งออกรายงาน',
     'dash.lastImport': 'ไฟล์ล่าสุด',
     'dash.items': 'รายการ',
-    'dash.emptyHint': 'ยังไม่มีข้อมูล — อัปโหลดไฟล์ Excel/CSV จาก Hiptime เพื่อเริ่มใช้งาน',
+    'dash.emptyHint':
+      'ยังไม่มีข้อมูล — อัปโหลดไฟล์ Excel/CSV จาก Hiptime เพื่อเริ่มใช้งาน',
     'dash.totalEmployees': 'พนักงานทั้งหมด',
     'dash.presentToday': 'เข้างานวันนี้',
     'dash.lateToday': 'สายวันนี้',
@@ -96,8 +100,7 @@ export const translations = {
     'emp.editTitle': 'แก้ไขพนักงาน',
     'emp.delete': 'ลบ',
     'emp.deleteTitle': 'ลบพนักงาน?',
-    'emp.deleteHint':
-      'จะลบ "{name}" และข้อมูลเข้างานของคนนี้ออกจากบริษัทนี้',
+    'emp.deleteHint': 'จะลบ "{name}" และข้อมูลเข้างานของคนนี้ออกจากบริษัทนี้',
     'emp.list': 'รายชื่อ',
     'emp.people': 'คน',
     'emp.empty': 'ยังไม่มีพนักงาน — กดเพิ่ม หรืออัปโหลดไฟล์ Hiptime',
@@ -184,7 +187,8 @@ export const translations = {
     'shift.byDeptHide': 'ซ่อนกะตามตำแหน่ง ▴',
     'shift.byDeptHint':
       'ใช้เมื่อตำแหน่งนั้นไม่สลับกะ — ถ้าเปิดคาดจากสแกน แม่แบบกะจะมาก่อน',
-    'shift.byDeptEmpty': 'ยังไม่มีตำแหน่ง — นำเข้าไฟล์ก่อน แล้วกลับมาตั้งที่นี่',
+    'shift.byDeptEmpty':
+      'ยังไม่มีตำแหน่ง — นำเข้าไฟล์ก่อน แล้วกลับมาตั้งที่นี่',
     'shift.byDeptDefault': 'ใช้เวลามาตรฐาน',
     'shift.byDeptReset': 'รีเซ็ต',
     'shift.applyExisting':
@@ -404,7 +408,7 @@ export const translations = {
     'company.save': 'Save',
     'company.setupTitle': 'Start by entering your company name',
     'company.setupCta': 'Get started',
-    'company.setupHint': 'Company data is stored on this device (localStorage)',
+    'company.setupHint': 'Company data is stored on MongoDB Atlas',
     'company.nameRequired': 'Please enter a company name',
 
     'common.cancel': 'Cancel',
@@ -437,7 +441,8 @@ export const translations = {
 
     'dash.overview': 'Overview',
     'dash.companyLabel': 'Company',
-    'dash.welcome': 'Attendance summary, shift swaps, and Hiptime import for this company',
+    'dash.welcome':
+      'Attendance summary, shift swaps, and Hiptime import for this company',
     'dash.todayTitle': 'Today',
     'dash.subtitle':
       'Import real Hiptime files, review attendance, swap shifts, and export reports',
@@ -511,7 +516,8 @@ export const translations = {
 
     'profile.title': 'Company profile',
     'profile.nav': 'Settings',
-    'profile.subtitle': 'Manage company name, language, shift settings, and backups',
+    'profile.subtitle':
+      'Manage company name, language, shift settings, and backups',
     'profile.langHint': 'Choose the app language',
     'profile.company': 'Company info',
     'profile.created': 'Created',
@@ -532,7 +538,8 @@ export const translations = {
     'shift.hintShort': 'Off days · templates · punch match',
     'shift.offDays': 'Weekly days off',
     'shift.offDaysHint': 'Pick days that are always off, e.g. Monday',
-    'shift.noOffWarn': 'No off days selected — every day is treated as a work day',
+    'shift.noOffWarn':
+      'No off days selected — every day is treated as a work day',
     'shift.templates': 'Shift templates',
     'shift.templatesHint':
       'e.g. Early 08:00–18:00 and Late 08:30–19:00 — on punched days the closest clock-in match wins',
@@ -566,7 +573,8 @@ export const translations = {
     'shift.byDeptHide': 'Hide position hours ▴',
     'shift.byDeptHint':
       'For positions that never rotate — punch matching still takes priority when enabled',
-    'shift.byDeptEmpty': 'No positions yet — import a file first, then set hours here',
+    'shift.byDeptEmpty':
+      'No positions yet — import a file first, then set hours here',
     'shift.byDeptDefault': 'Using standard hours',
     'shift.byDeptReset': 'Reset',
     'shift.applyExisting':
@@ -651,7 +659,8 @@ export const translations = {
     'swap.issues.storeSwap': 'Swap store holiday',
     'swap.people': 'people',
     'swap.storeLabel': 'Whole store',
-    'swap.subtitleAlt': 'Per person — or whole store when swapping store holidays together',
+    'swap.subtitleAlt':
+      'Per person — or whole store when swapping store holidays together',
     'swap.weekdays': 'Mon,Tue,Wed,Thu,Fri,Sat,Sun',
     'swap.mixedShort': 'Mixed',
     'swap.workOffDetail': 'Work {work} · Off {off}',
@@ -663,7 +672,8 @@ export const translations = {
     'swap.savedStore':
       'Store swap: {work} → OFF · {holiday} → open ({count} people)',
     'swap.savedPerson': 'Swapped {name}: {work} ↔ {holiday}',
-    'swap.storeHintCount': 'Applies to every employee in this company ({count} people)',
+    'swap.storeHintCount':
+      'Applies to every employee in this company ({count} people)',
     'swap.historyStore': 'Whole store ({count} people)',
     'swap.personNoIn': 'Missed in',
     'swap.personNoOut': 'Missed out',
@@ -676,7 +686,8 @@ export const translations = {
     'report.title': 'Export Reports',
     'report.search': 'Search name / ID / position',
     'report.employeeSelected': '{count} selected',
-    'report.employeeMultiHint': 'None checked = everyone · check people to export',
+    'report.employeeMultiHint':
+      'None checked = everyone · check people to export',
     'report.subtitle': 'Choose a report type and export Excel for the owner',
     'report.subtitleEmpty':
       'Complete attendance table and monthly summary for the owner',
@@ -786,7 +797,7 @@ export const translations = {
     'company.save': '保存',
     'company.setupTitle': '请先填写公司名称',
     'company.setupCta': '开始使用',
-    'company.setupHint': '公司数据保存在本机（localStorage）',
+    'company.setupHint': '公司数据保存在 MongoDB Atlas',
     'company.nameRequired': '请输入公司名称',
 
     'common.cancel': '取消',
@@ -941,13 +952,11 @@ export const translations = {
     'shift.byDept': '按岗位班次',
     'shift.byDeptShow': '高级：按岗位固定时间 ▾',
     'shift.byDeptHide': '隐藏岗位时间 ▴',
-    'shift.byDeptHint':
-      '适用于不轮班的岗位 — 开启打卡匹配时仍以模板优先',
+    'shift.byDeptHint': '适用于不轮班的岗位 — 开启打卡匹配时仍以模板优先',
     'shift.byDeptEmpty': '尚无岗位 — 请先导入文件，再回到这里设置',
     'shift.byDeptDefault': '使用标准时间',
     'shift.byDeptReset': '重置',
-    'shift.applyExisting':
-      '应用到现有数据（仅无文件班次的记录）',
+    'shift.applyExisting': '应用到现有数据（仅无文件班次的记录）',
     'shift.day.0': '日',
     'shift.day.1': '一',
     'shift.day.2': '二',
@@ -1141,3 +1150,77 @@ export const translations = {
     'status.Store': '整店',
   },
 }
+
+Object.entries(workflowCopy).forEach(([key, values]) => {
+  ;['th', 'en', 'zh'].forEach((lang, index) => {
+    translations[lang][`flow.${key}`] = values[index]
+  })
+})
+
+Object.assign(translations.th, {
+  'nav.workspace': 'พื้นที่ทำงาน',
+  'nav.manage': 'จัดการระบบ',
+  'nav.dashboard': 'ภาพรวม',
+  'nav.swaps': 'ตารางงาน',
+  'nav.reports': 'รายงาน',
+  'nav.companyHint': 'เลือกหรือเพิ่มบริษัท',
+})
+Object.assign(translations.en, {
+  'nav.workspace': 'WORKSPACE',
+  'nav.manage': 'MANAGE',
+  'nav.dashboard': 'Overview',
+  'nav.swaps': 'Schedule',
+  'nav.reports': 'Reports',
+  'nav.companyHint': 'Select or add a company',
+})
+Object.assign(translations.zh, {
+  'nav.workspace': '工作区',
+  'nav.manage': '管理',
+  'nav.dashboard': '概览',
+  'nav.swaps': '排班',
+  'nav.reports': '报告',
+  'nav.companyHint': '选择或添加公司',
+})
+
+Object.assign(translations.th, {
+  'settings.intro': 'จัดการข้อมูลและรูปแบบการทำงานของบริษัทในที่เดียว',
+  'settings.companyHint': 'ชื่อบริษัทที่แสดงในระบบและรายงาน',
+  'settings.dataHint': 'สำรอง กู้คืน และล้างข้อมูล',
+  'settings.workspace': 'ข้อมูลการใช้งาน',
+  'settings.languageHint': 'เลือกภาษาที่ใช้แสดงผล การเปลี่ยนแปลงมีผลทันที',
+  'settings.backupHint':
+    'ดาวน์โหลดสำเนาข้อมูลบริษัท เลือกสำรองทั้งหมดหรือเฉพาะเดือนได้',
+  'settings.restoreHint':
+    'นำไฟล์สำรอง TimeSwap กลับมาใช้งาน เลือกรวมหรือแทนที่ข้อมูลเดิมได้',
+  'settings.deleteTitle': 'ล้างข้อมูลและลบบริษัท',
+  'settings.clearHint':
+    'เลือกข้อมูลที่จะล้าง โดยยังเก็บบริษัทและการตั้งค่ากะไว้',
+})
+
+Object.assign(translations.en, {
+  'settings.intro': 'Manage your company and working preferences in one place.',
+  'settings.companyHint': 'Company name shown in the app and reports.',
+  'settings.dataHint': 'Back up, restore and clear records.',
+  'settings.workspace': 'Workspace details',
+  'settings.languageHint':
+    'Choose your display language. Changes apply immediately.',
+  'settings.backupHint':
+    'Download a copy of all company records or selected months.',
+  'settings.restoreHint':
+    'Restore a TimeSwap backup by merging or replacing existing records.',
+  'settings.deleteTitle': 'Clear data and delete company',
+  'settings.clearHint':
+    'Choose records to clear while keeping the company and shift settings.',
+})
+
+Object.assign(translations.zh, {
+  'settings.intro': '在此管理公司信息和工作偏好。',
+  'settings.companyHint': '应用和报告中显示的公司名称。',
+  'settings.dataHint': '备份、恢复和清除数据。',
+  'settings.workspace': '工作区信息',
+  'settings.languageHint': '选择显示语言，更改立即生效。',
+  'settings.backupHint': '下载全部公司数据或所选月份的副本。',
+  'settings.restoreHint': '恢复 TimeSwap 备份，可合并或替换现有记录。',
+  'settings.deleteTitle': '清除数据及删除公司',
+  'settings.clearHint': '选择要清除的记录，保留公司和班次设置。',
+})

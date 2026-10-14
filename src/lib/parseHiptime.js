@@ -9,11 +9,17 @@ import {
   formatTime,
 } from './attendance'
 import {
+  normalizeEmployeeId,
+  normalizePersonName,
+} from './employeeIdentity'
+import {
   classifyByRoutine,
   enforceKitchenWeeklyShifts,
   normalizeSettings,
   resolveSchedule as resolveScheduleFromSettings,
 } from './shiftRoutine'
+
+export { normalizeEmployeeId, normalizePersonName } from './employeeIdentity'
 
 /**
  * Aliases ordered longest/most-specific first where possible.
@@ -34,12 +40,29 @@ const FIELD_ALIASES = {
   employeeId: [
     'รหัสพนักงาน',
     'รหัสพนง',
+    'รหัสประจำตัว',
     'employeeid',
     'employee_id',
     'empcode',
+    'empno',
     'staffid',
+    'staffcode',
     'empid',
-    'รหัส',
+  ],
+  /** Matched only to exclude — never used as employee identity */
+  machineId: [
+    'รหัสที่เครื่องบันทึกเวลา',
+    'รหัสที่เครื่อง',
+    'รหัสเครื่อง',
+    'หมายเลขเครื่องบันทึกเวลา',
+    'หมายเลขเครื่อง',
+    'เลขเครื่อง',
+    'machineno',
+    'machineid',
+    'machinenumber',
+    'deviceno',
+    'deviceid',
+    'terminalid',
   ],
   department: ['department', 'dept', 'section', 'แผนก', 'หน่วยงาน', 'ฝ่าย'],
   date: [
@@ -111,10 +134,22 @@ function normalizeHeader(value) {
     .replace(/\d+$/g, '')
 }
 
+/** Headers that are clock-machine codes, not HR employee IDs */
+function isMachineIdHeader(headerKey) {
+  if (!headerKey) return false
+  return (
+    /เครื่อง|machine|device|terminal|recorder/.test(headerKey) ||
+    /รหัสที่เครื่อง|หมายเลขเครื่อง|เลขเครื่อง/.test(headerKey)
+  )
+}
+
 function scoreHeaderMatch(headerKey, aliasKey) {
   if (!aliasKey) return 0
   if (headerKey === aliasKey) return 100 + aliasKey.length
-  if (headerKey.startsWith(aliasKey) && headerKey.length <= aliasKey.length + 2) {
+  if (
+    headerKey.startsWith(aliasKey) &&
+    headerKey.length <= aliasKey.length + 2
+  ) {
     return 80 + aliasKey.length
   }
   if (headerKey.includes(aliasKey) && aliasKey.length >= 3) {
@@ -130,6 +165,19 @@ function buildHeaderMap(headers) {
   }))
   const used = new Set()
   const map = {}
+
+  // Reserve machine-number columns so they never become employeeId
+  for (const h of normalized) {
+    if (isMachineIdHeader(h.key)) {
+      for (const alias of FIELD_ALIASES.machineId || []) {
+        if (scoreHeaderMatch(h.key, normalizeHeader(alias)) > 0) {
+          used.add(h.raw)
+          break
+        }
+      }
+      if (isMachineIdHeader(h.key)) used.add(h.raw)
+    }
+  }
 
   const order = [
     'scheduleRange',
@@ -153,6 +201,7 @@ function buildHeaderMap(headers) {
 
     for (const h of normalized) {
       if (used.has(h.raw)) continue
+      if (field === 'employeeId' && isMachineIdHeader(h.key)) continue
       if (field === 'actualIn' && h.key.includes('ออก')) continue
       if (field === 'actualIn' && h.key.includes('เข้าออก')) continue
       if (field === 'actualOut' && h.key.includes('เข้าออก')) continue
@@ -343,9 +392,7 @@ function parseScheduleRange(value) {
   if (value == null || value === '') return null
   const raw = String(value).trim()
   if (!raw) return null
-  const match = raw.match(
-    /(\d{1,2}:\d{2})\s*[~\-–—ถึง]+\s*(\d{1,2}:\d{2})/,
-  )
+  const match = raw.match(/(\d{1,2}:\d{2})\s*[~\-–—ถึง]+\s*(\d{1,2}:\d{2})/)
   if (!match) return null
   return {
     scheduledIn: formatTime(match[1]),
@@ -364,9 +411,7 @@ function extractPunches(row, headerMap, punchKeys, scheduledIn, scheduledOut) {
   let actualOut = '—'
 
   if (punchKeys?.length) {
-    const times = punchKeys
-      .map((k) => parseTimeValue(row[k]))
-      .filter(Boolean)
+    const times = punchKeys.map((k) => parseTimeValue(row[k])).filter(Boolean)
     if (!times.length) return { actualIn: '—', actualOut: '—' }
     if (times.length === 1) {
       return assignSinglePunch(times[0], scheduledIn, scheduledOut)
@@ -434,8 +479,11 @@ export async function parseHiptimeFile(file, options = {}) {
   )
 
   const employeeMap = new Map()
+  const nameToId = new Map()
+  const normIdToId = new Map()
   const records = []
   let skipped = 0
+  const diagnostics = []
 
   rows.forEach((row, index) => {
     const date = parseDateValue(cell(row, headerMap, 'date'), dateOrder)
@@ -445,15 +493,31 @@ export async function parseHiptimeFile(file, options = {}) {
       String(cell(row, headerMap, 'department') ?? '').trim() || '—'
     const remark = String(cell(row, headerMap, 'remark') ?? '').trim()
 
-    if (!date) {
+    if (
+      !date ||
+      !Number.isFinite(Date.parse(date)) ||
+      new Date(date).toISOString().slice(0, 10) !== date
+    ) {
+      diagnostics.push({ row: index + 1, reason: 'date' })
       skipped += 1
       return
     }
     if (!employeeId && !name) {
+      diagnostics.push({ row: index + 1, reason: 'employee' })
       skipped += 1
       return
     }
     if (!employeeId) employeeId = name
+
+    const nameKey = normalizePersonName(name)
+    const normId = normalizeEmployeeId(employeeId)
+
+    // Same person across rows: prefer existing by name, then by numeric ID
+    if (nameKey && nameToId.has(nameKey)) {
+      employeeId = nameToId.get(nameKey)
+    } else if (normId && normIdToId.has(normId)) {
+      employeeId = normIdToId.get(normId)
+    }
 
     if (!employeeMap.has(employeeId)) {
       employeeMap.set(employeeId, {
@@ -469,6 +533,9 @@ export async function parseHiptimeFile(file, options = {}) {
         department: department !== '—' ? department : prev.department,
       })
     }
+
+    if (nameKey && !nameToId.has(nameKey)) nameToId.set(nameKey, employeeId)
+    if (normId && !normIdToId.has(normId)) normIdToId.set(normId, employeeId)
 
     const statusHint = cell(row, headerMap, 'status')
     const statusText = String(statusHint ?? '').trim()
@@ -621,6 +688,7 @@ export async function parseHiptimeFile(file, options = {}) {
       sheetName,
       rowCount: records.length,
       skipped,
+      diagnostics,
       mappedColumns: headerMap,
       dateOrder,
       punchKeys,

@@ -22,6 +22,7 @@ export function emptyCompanyData() {
     employees: [],
     records: [],
     swapHistory: [],
+    activityHistory: [],
     /** Per-employee monthly notes: { [employeeId]: { [YYYY-MM]: string } } */
     summaryNotes: {},
     lastImport: null,

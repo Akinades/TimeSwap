@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   eachDayOfInterval,
   endOfMonth,
@@ -7,7 +7,15 @@ import {
   parseISO,
   startOfMonth,
 } from 'date-fns'
-import { AlertTriangle, ArrowLeftRight, Pencil, Store, Upload, User, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeftRight,
+  Pencil,
+  Store,
+  Upload,
+  User,
+  X,
+} from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useI18n } from '../i18n/I18nContext'
 import StatusBadge from '../components/StatusBadge'
@@ -42,13 +50,22 @@ function personDayStatus(record, t) {
   }
   if (!record) return { label: '—', className: 'bg-slate-50 text-slate-400' }
   if (record.status === 'Leave-Personal') {
-    return { label: t('swap.leave.personalShort'), className: 'bg-violet-100 text-violet-800' }
+    return {
+      label: t('swap.leave.personalShort'),
+      className: 'bg-violet-100 text-violet-800',
+    }
   }
   if (record.status === 'Leave-Sick') {
-    return { label: t('swap.leave.sickShort'), className: 'bg-fuchsia-100 text-fuchsia-800' }
+    return {
+      label: t('swap.leave.sickShort'),
+      className: 'bg-fuchsia-100 text-fuchsia-800',
+    }
   }
   if (record.status === 'Leave-Vacation') {
-    return { label: t('swap.leave.vacationShort'), className: 'bg-cyan-100 text-cyan-800' }
+    return {
+      label: t('swap.leave.vacationShort'),
+      className: 'bg-cyan-100 text-cyan-800',
+    }
   }
   if (isOffDayRecord(record)) {
     return { label: 'OFF', className: 'bg-slate-100 text-slate-600' }
@@ -113,6 +130,7 @@ export default function ShiftSwap() {
     companySettings,
   } = useApp()
   const { t } = useI18n()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [view, setView] = useState('store') // 'store' | 'person'
   const [department, setDepartment] = useState('all')
   const [employeeId, setEmployeeId] = useState('')
@@ -236,9 +254,7 @@ export default function ShiftSwap() {
   }
 
   function openEditModal({ employeeId: empId, date }) {
-    const rec = records.find(
-      (r) => r.employeeId === empId && r.date === date,
-    )
+    const rec = records.find((r) => r.employeeId === empId && r.date === date)
     const punches = displayPunches(rec)
     setEditEmployeeId(empId)
     setEditDate(date)
@@ -256,6 +272,18 @@ export default function ShiftSwap() {
     setEditTimePreset('')
     setEditOpen(true)
   }
+
+  useEffect(() => {
+    const emp = searchParams.get('employee')
+    const date = searchParams.get('date')
+    if (emp && /^\d{4}-\d{2}-\d{2}$/.test(date || '') && employeeMap[emp]) {
+      setMonth(date.slice(0, 7))
+      setView('person')
+      setEmployeeId(emp)
+      openEditModal({ employeeId: emp, date })
+      setSearchParams({}, { replace: true })
+    }
+  }, [searchParams, employeeMap])
 
   function applyEditTimePreset() {
     const cfg = companySettings || {}
@@ -491,9 +519,11 @@ export default function ShiftSwap() {
                   {d}
                 </div>
               ))}
-              {Array.from({ length: (days[0].getDay() + 6) % 7 }).map((_, i) => (
-                <div key={`pad-${i}`} />
-              ))}
+              {Array.from({ length: (days[0].getDay() + 6) % 7 }).map(
+                (_, i) => (
+                  <div key={`pad-${i}`} />
+                ),
+              )}
               {days.map((day) => {
                 const key = format(day, 'yyyy-MM-dd')
                 const stats = storeDayMap[key] || {
@@ -546,9 +576,9 @@ export default function ShiftSwap() {
               </h3>
               <p className="text-xs text-slate-500">{t('swap.matrixHint')}</p>
             </div>
-            <div className="overflow-x-auto">
+            <div className="max-h-[65vh] overflow-auto">
               <table className="min-w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-500">
+                <thead className="sticky top-0 z-20 bg-slate-50 text-slate-500">
                   <tr>
                     <th className="sticky left-0 z-10 bg-slate-50 px-3 py-2 font-medium">
                       {t('common.employee')}
@@ -704,7 +734,9 @@ export default function ShiftSwap() {
       )}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 font-semibold text-slate-900">{t('swap.history')}</h3>
+        <h3 className="mb-3 font-semibold text-slate-900">
+          {t('swap.history')}
+        </h3>
         {pendingSwaps.length === 0 ? (
           <p className="text-sm text-slate-400">{t('swap.noHistory')}</p>
         ) : (
@@ -856,6 +888,13 @@ export default function ShiftSwap() {
               >
                 {t('common.cancel')}
               </button>
+              <p className="mr-auto text-xs text-slate-500">
+                {t('flow.affected', {
+                  count: modalScope === 'store' ? employees.length : 1,
+                  from: workDate || '—',
+                  to: holidayDate || '—',
+                })}
+              </p>
               <button
                 type="button"
                 onClick={handleSaveSwap}
@@ -895,8 +934,7 @@ export default function ShiftSwap() {
 
             {(() => {
               const rec = records.find(
-                (r) =>
-                  r.employeeId === editEmployeeId && r.date === editDate,
+                (r) => r.employeeId === editEmployeeId && r.date === editDate,
               )
               const issue = punchIssue(rec)
               return issue ? (
@@ -1066,7 +1104,9 @@ export default function ShiftSwap() {
                 <h3 className="text-lg font-semibold text-slate-900">
                   {t('swap.issues.title')} · {dayIssuesDate}
                 </h3>
-                <p className="text-sm text-slate-500">{t('swap.issues.hint')}</p>
+                <p className="text-sm text-slate-500">
+                  {t('swap.issues.hint')}
+                </p>
               </div>
               <button
                 type="button"

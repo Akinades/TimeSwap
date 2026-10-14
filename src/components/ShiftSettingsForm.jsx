@@ -132,7 +132,9 @@ export default function ShiftSettingsForm({ compact = false }) {
 
   function toggleDay(day) {
     setOffWeekdays((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort(),
+      prev.includes(day)
+        ? prev.filter((d) => d !== day)
+        : [...prev, day].sort(),
     )
     markDirty()
   }
@@ -247,9 +249,7 @@ export default function ShiftSettingsForm({ compact = false }) {
 
   function setWeekdayRuleAllDepts(id) {
     setWeekdayShiftRules((prev) =>
-      prev.map((row) =>
-        row.id === id ? { ...row, departments: [] } : row,
-      ),
+      prev.map((row) => (row.id === id ? { ...row, departments: [] } : row)),
     )
     markDirty()
   }
@@ -347,7 +347,9 @@ export default function ShiftSettingsForm({ compact = false }) {
           {t('shift.offDays')}
         </p>
         {!compact && (
-          <p className="mb-3 text-xs text-slate-400">{t('shift.offDaysHint')}</p>
+          <p className="mb-3 text-xs text-slate-400">
+            {t('shift.offDaysHint')}
+          </p>
         )}
         <div className="grid max-w-md grid-cols-7 gap-1.5">
           {WEEKDAY_KEYS.map((day) => {
@@ -380,7 +382,9 @@ export default function ShiftSettingsForm({ compact = false }) {
           {t('shift.workHours')}
         </p>
         {!compact && (
-          <p className="mb-3 text-xs text-slate-400">{t('shift.workHoursHint')}</p>
+          <p className="mb-3 text-xs text-slate-400">
+            {t('shift.workHoursHint')}
+          </p>
         )}
         <div className="grid max-w-xs grid-cols-2 gap-2">
           <div>
@@ -436,7 +440,9 @@ export default function ShiftSettingsForm({ compact = false }) {
           </div>
         </div>
         {!compact && (
-          <p className="mb-3 text-xs text-slate-400">{t('shift.templatesHint')}</p>
+          <p className="mb-3 text-xs text-slate-400">
+            {t('shift.templatesHint')}
+          </p>
         )}
 
         {shiftTemplates.length === 0 ? (
@@ -448,7 +454,7 @@ export default function ShiftSettingsForm({ compact = false }) {
             {shiftTemplates.map((row) => (
               <div
                 key={row.id}
-                className="grid grid-cols-[7.5rem_6.75rem_6.75rem_auto] items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5"
+                className="grid grid-cols-1 sm:grid-cols-[minmax(7.5rem,1fr)_6.75rem_6.75rem_auto] items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5"
               >
                 <input
                   type="text"
@@ -534,7 +540,9 @@ export default function ShiftSettingsForm({ compact = false }) {
           </p>
         )}
         {weekdayShiftRules.length === 0 ? (
-          <p className="text-xs text-slate-400">{t('shift.weekdayRulesEmpty')}</p>
+          <p className="text-xs text-slate-400">
+            {t('shift.weekdayRulesEmpty')}
+          </p>
         ) : (
           <div className="space-y-2">
             {weekdayShiftRules.map((row) => (
@@ -542,7 +550,7 @@ export default function ShiftSettingsForm({ compact = false }) {
                 key={row.id}
                 className="space-y-2 rounded-lg bg-slate-50 px-2.5 py-2"
               >
-                <div className="grid grid-cols-[7.5rem_6.75rem_6.75rem_auto] items-center gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-[minmax(7.5rem,1fr)_6.75rem_6.75rem_auto] items-center gap-2">
                   <input
                     type="text"
                     value={row.name}
@@ -578,7 +586,9 @@ export default function ShiftSettingsForm({ compact = false }) {
                         key={day}
                         type="button"
                         disabled={isOff}
-                        title={isOff ? t('shift.weekdayRulesOffDay') : undefined}
+                        title={
+                          isOff ? t('shift.weekdayRulesOffDay') : undefined
+                        }
                         onClick={() => toggleWeekdayRuleDay(row.id, day)}
                         className={`rounded-md px-2 py-1 text-[11px] font-medium transition ${
                           isOff
@@ -667,7 +677,9 @@ export default function ShiftSettingsForm({ compact = false }) {
         {showDept && (
           <div className="mt-2">
             {!compact && (
-              <p className="mb-2 text-xs text-slate-400">{t('shift.byDeptHint')}</p>
+              <p className="mb-2 text-xs text-slate-400">
+                {t('shift.byDeptHint')}
+              </p>
             )}
             {departments.length === 0 ? (
               <p className="text-xs text-slate-400">{t('shift.byDeptEmpty')}</p>
@@ -681,7 +693,7 @@ export default function ShiftSettingsForm({ compact = false }) {
                   return (
                     <div
                       key={dept}
-                      className="grid grid-cols-[7.5rem_6.75rem_6.75rem_auto] items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5"
+                      className="grid grid-cols-1 sm:grid-cols-[minmax(7.5rem,1fr)_6.75rem_6.75rem_auto] items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5"
                     >
                       <p className="truncate text-sm font-medium text-slate-800">
                         {dept}

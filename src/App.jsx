@@ -9,12 +9,22 @@ import ShiftSwap from './pages/ShiftSwap'
 import Summary from './pages/Summary'
 import CompanyProfile from './pages/CompanyProfile'
 import Employees from './pages/Employees'
+import History from './pages/History'
 
 function AppRoutes() {
-  const { hasCompany } = useApp()
+  const { hasCompany, loadError } = useApp()
 
   if (!hasCompany) {
-    return <CompanySetup />
+    return (
+      <>
+        {loadError ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">
+            {loadError}
+          </div>
+        ) : null}
+        <CompanySetup />
+      </>
+    )
   }
 
   return (
@@ -26,6 +36,7 @@ function AppRoutes() {
         <Route path="swaps" element={<ShiftSwap />} />
         <Route path="calendar" element={<Navigate to="/swaps" replace />} />
         <Route path="summary" element={<Summary />} />
+        <Route path="history" element={<History />} />
         <Route path="profile" element={<CompanyProfile />} />
       </Route>
     </Routes>

@@ -5,17 +5,26 @@ Mock frontend for Hiptime attendance, shift/holiday swap, and monthly summary ex
 ## Stack
 
 - React + Vite
+- Express + MongoDB Atlas (workspace persistence)
 - Tailwind CSS
 - Lucide React
 - React Router
 - date-fns
 
-## Run
+## Setup
+
+1. Copy `.env.example` to `.env` and set `MONGODB_URI` (Atlas connection string).
+2. Install and run both API + frontend:
 
 ```bash
 npm install
 npm run dev
 ```
+
+- Web: http://localhost:5173  
+- API: http://localhost:3001  
+
+`npm run server` starts the API only; `npm run dev:web` starts Vite only.
 
 ## Pages
 

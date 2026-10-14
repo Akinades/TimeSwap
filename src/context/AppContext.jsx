@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BACKUP_VERSION,
   LEGACY_STORAGE_KEY,
@@ -15,6 +15,7 @@ import {
   statusForDayType,
   todayISO,
 } from '../lib/attendance'
+import { fetchWorkspace, saveWorkspace } from '../lib/api'
 import { parseHiptimeFile } from '../lib/parseHiptime'
 import {
   applyRoutineToRecords,
@@ -22,9 +23,11 @@ import {
   normalizeSettings,
 } from '../lib/shiftRoutine'
 
+import { planImport, withHistory, undoHistory } from '../lib/workflow'
+
 const AppContext = createContext(null)
 
-function loadWorkspace() {
+function readLocalWorkspace() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
@@ -35,13 +38,12 @@ function loadWorkspace() {
     /* ignore */
   }
 
-  // Migrate legacy single-dataset storage into one company if present
   try {
     const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
     if (legacy) {
       const data = JSON.parse(legacy)
       const id = createCompanyId()
-      const workspace = {
+      return {
         companies: [
           {
             id,
@@ -56,22 +58,34 @@ function loadWorkspace() {
         ],
         activeCompanyId: id,
       }
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace))
-      return workspace
     }
   } catch {
     /* ignore */
   }
 
-  return { companies: [], activeCompanyId: null }
+  return null
+}
+
+function clearLocalWorkspace() {
+  try {
+    localStorage.removeItem(STORAGE_KEY)
+    localStorage.removeItem(LEGACY_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
 }
 
 export function AppProvider({ children }) {
-  const initial = loadWorkspace()
-  const [companies, setCompanies] = useState(initial.companies)
-  const [activeCompanyId, setActiveCompanyId] = useState(initial.activeCompanyId)
+  const [companies, setCompanies] = useState([])
+  const [activeCompanyId, setActiveCompanyId] = useState(null)
+  const [ready, setReady] = useState(false)
+  const [loadError, setLoadError] = useState(null)
+  const [saving, setSaving] = useState(false)
   const [uploadFeedback, setUploadFeedback] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [importPreview, setImportPreview] = useState(null)
+  const skipNextSave = useRef(true)
+  const saveTimer = useRef(null)
 
   const activeCompany = useMemo(
     () => companies.find((c) => c.id === activeCompanyId) || null,
@@ -86,17 +100,88 @@ export function AppProvider({ children }) {
   const companySettings = normalizeSettings(activeCompany?.settings)
 
   useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({ companies, activeCompanyId }),
-    )
-  }, [companies, activeCompanyId])
+    let cancelled = false
+
+    async function bootstrap() {
+      try {
+        const remote = await fetchWorkspace()
+        if (cancelled) return
+
+        const hasRemote =
+          Array.isArray(remote?.companies) && remote.companies.length > 0
+
+        if (hasRemote) {
+          skipNextSave.current = true
+          setCompanies(remote.companies)
+          setActiveCompanyId(remote.activeCompanyId ?? remote.companies[0]?.id ?? null)
+          clearLocalWorkspace()
+        } else {
+          const local = readLocalWorkspace()
+          if (local?.companies?.length) {
+            skipNextSave.current = true
+            setCompanies(local.companies)
+            setActiveCompanyId(
+              local.activeCompanyId ?? local.companies[0]?.id ?? null,
+            )
+            await saveWorkspace(local)
+            clearLocalWorkspace()
+          } else {
+            skipNextSave.current = true
+            setCompanies([])
+            setActiveCompanyId(null)
+          }
+        }
+        setLoadError(null)
+      } catch (err) {
+        if (cancelled) return
+        const local = readLocalWorkspace()
+        if (local?.companies) {
+          skipNextSave.current = true
+          setCompanies(local.companies)
+          setActiveCompanyId(local.activeCompanyId ?? null)
+          setLoadError(
+            `เชื่อมต่อ MongoDB ไม่ได้ — ใช้ข้อมูลในเครื่องชั่วคราว (${err.message})`,
+          )
+        } else {
+          setLoadError(err.message || 'โหลดข้อมูลไม่สำเร็จ')
+        }
+      } finally {
+        if (!cancelled) setReady(true)
+      }
+    }
+
+    bootstrap()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!ready) return
+    if (skipNextSave.current) {
+      skipNextSave.current = false
+      return
+    }
+
+    clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(async () => {
+      setSaving(true)
+      try {
+        await saveWorkspace({ companies, activeCompanyId })
+        setLoadError(null)
+      } catch (err) {
+        setLoadError(`บันทึก MongoDB ไม่สำเร็จ: ${err.message}`)
+      } finally {
+        setSaving(false)
+      }
+    }, 400)
+
+    return () => clearTimeout(saveTimer.current)
+  }, [companies, activeCompanyId, ready])
 
   function updateActiveCompany(patch) {
     setCompanies((prev) =>
-      prev.map((c) =>
-        c.id === activeCompanyId ? { ...c, ...patch } : c,
-      ),
+      prev.map((c) => (c.id === activeCompanyId ? { ...c, ...patch } : c)),
     )
   }
 
@@ -104,7 +189,8 @@ export function AppProvider({ children }) {
     setCompanies((prev) =>
       prev.map((c) => {
         if (c.id !== activeCompanyId) return c
-        const next = typeof updater === 'function' ? updater(c) : { ...c, ...updater }
+        const next =
+          typeof updater === 'function' ? updater(c) : { ...c, ...updater }
         return next
       }),
     )
@@ -208,9 +294,12 @@ export function AppProvider({ children }) {
         if (patch.department !== undefined) {
           next.department = String(patch.department || '').trim() || '—'
         }
-        if (patch.phone !== undefined) next.phone = String(patch.phone || '').trim()
-        if (patch.email !== undefined) next.email = String(patch.email || '').trim()
-        if (patch.note !== undefined) next.note = String(patch.note || '').trim()
+        if (patch.phone !== undefined)
+          next.phone = String(patch.phone || '').trim()
+        if (patch.email !== undefined)
+          next.email = String(patch.email || '').trim()
+        if (patch.note !== undefined)
+          next.note = String(patch.note || '').trim()
         if (patch.active !== undefined) next.active = Boolean(patch.active)
         return next
       })
@@ -270,110 +359,60 @@ export function AppProvider({ children }) {
     })
   }
 
-  /**
-   * Always append/merge. Never replaces existing attendance.
-   * Duplicate key = employeeId + date → skip (keep existing / manual edits).
-   */
   async function importHiptime(file) {
-    if (!activeCompanyId) return
+    if (!activeCompanyId || importing) return
+    const companyId = activeCompanyId
     setImporting(true)
+    setImportPreview(null)
     setUploadFeedback(null)
     try {
-      const company = companies.find((c) => c.id === activeCompanyId)
-      if (!company) return
-
-      const settings = normalizeSettings(company.settings)
-      const parsed = await parseHiptimeFile(file, { settings })
-
-      const empMap = new Map((company.employees || []).map((e) => [e.id, e]))
-      parsed.employees.forEach((e) => {
-        const prev = empMap.get(e.id)
-        if (prev) {
-          empMap.set(e.id, {
-            ...prev,
-            name: e.name || prev.name,
-            department:
-              e.department && e.department !== '—'
-                ? e.department
-                : prev.department,
-          })
-        } else {
-          empMap.set(e.id, e)
-        }
-      })
-
-      const existingKeys = new Set(
-        (company.records || []).map((r) => `${r.employeeId}|${r.date}`),
-      )
-      const maxId = Math.max(0, ...(company.records || []).map((r) => r.id), 0)
-      const toAdd = []
-      let skippedDup = 0
-
-      parsed.records.forEach((r) => {
-        const key = `${r.employeeId}|${r.date}`
-        if (existingKeys.has(key)) {
-          skippedDup += 1
-          return
-        }
-        existingKeys.add(key)
-        toAdd.push({ ...r, id: maxId + toAdd.length + 1 })
-      })
-
-      const employeesNext = Array.from(empMap.values()).sort((a, b) =>
-        a.name.localeCompare(b.name, 'th'),
-      )
-      const mergedRecords = [...toAdd, ...(company.records || [])]
-      const recordsNext = enforceKitchenWeeklyShifts(
-        mergedRecords,
-        settings,
-        employeesNext,
-      )
-
-      const nextCompany = {
-        ...company,
-        settings,
-        employees: employeesNext,
-        records: recordsNext,
-        lastImport: {
-          fileName: parsed.meta.fileName,
-          importedAt: new Date().toISOString(),
-          rowCount: parsed.meta.rowCount,
-          added: toAdd.length,
-          skippedDup,
-        },
-      }
-
-      setCompanies((prev) =>
-        prev.map((c) => (c.id === activeCompanyId ? nextCompany : c)),
-      )
-
-      const parts = [
-        `นำเข้า "${parsed.meta.fileName}" สำเร็จ`,
-        `เพิ่ม ${toAdd.length} รายการ`,
-      ]
-      if (skippedDup > 0) {
-        parts.push(`ข้ามซ้ำ ${skippedDup} รายการ`)
-      }
-      parts.push(`${empMap.size} พนักงาน`)
-      if (parsed.meta.skipped) {
-        parts.push(`ข้ามแถวเสีย ${parsed.meta.skipped}`)
-      }
-
-      setUploadFeedback({
-        type: 'success',
-        message: parts.join(' — '),
-      })
-      return { ...parsed, added: toAdd.length, skippedDup }
+      const parsed = await parseHiptimeFile(file, { settings: companySettings })
+      setImportPreview({ companyId, parsed })
     } catch (err) {
       setUploadFeedback({
         type: 'error',
         message: err.message || 'นำเข้าไฟล์ไม่สำเร็จ',
       })
-      throw err
     } finally {
       setImporting(false)
-      setTimeout(() => setUploadFeedback(null), 8000)
     }
+  }
+
+  function confirmImport(mode = 'skip') {
+    if (!importPreview || importPreview.companyId !== activeCompanyId) return
+    const { parsed } = importPreview
+    patchActiveCompany((company) => {
+      const plan = planImport(company, parsed, mode)
+      const next = {
+        ...company,
+        records: plan.records,
+        employees: plan.employees,
+        lastImport: {
+          fileName: parsed.meta.fileName,
+          importedAt: new Date().toISOString(),
+          rowCount: parsed.meta.rowCount,
+          added: plan.added,
+          updated: plan.updated,
+          skippedDup:
+            mode === 'skip'
+              ? plan.duplicates + plan.internalDuplicates
+              : plan.internalDuplicates,
+        },
+      }
+      return withHistory(company, next, 'import', parsed.meta.fileName, {
+        added: plan.added,
+        updated: plan.updated,
+      })
+    })
+    setImportPreview(null)
+    setUploadFeedback({
+      type: 'success',
+      message: `นำเข้า "${parsed.meta.fileName}" สำเร็จ`,
+    })
+  }
+
+  function undoActivity(id) {
+    patchActiveCompany((company) => undoHistory(company, id))
   }
 
   /**
@@ -438,6 +477,12 @@ export function AppProvider({ children }) {
         employees: nextEmployees,
         swapHistory: nextSwaps,
         summaryNotes: nextNotes,
+        activityHistory: (company.activityHistory || []).filter(
+          (e) =>
+            !e.changes.some((c) =>
+              monthSet.has((c.after || c.before).date.slice(0, 7)),
+            ),
+        ),
         lastImport: nextLastImport,
       }
     })
@@ -546,12 +591,7 @@ export function AppProvider({ children }) {
    * - person: สลับเฉพาะ employeeId
    * - store: สลับทั้งร้าน (ทุกพนักงานในบริษัท)
    */
-  function swapShift({
-    scope = 'person',
-    employeeId,
-    workDate,
-    holidayDate,
-  }) {
+  function swapShift({ scope = 'person', employeeId, workDate, holidayDate }) {
     if (!activeCompanyId || !workDate || !holidayDate) return
 
     patchActiveCompany((company) => {
@@ -570,25 +610,27 @@ export function AppProvider({ children }) {
       })
 
       const swapEntry = {
-        id: `SWAP-${String((company.swapHistory?.length || 0) + 1).padStart(3, '0')}`,
+        id: `SWAP-${createCompanyId()}`,
         scope,
         employeeId: scope === 'store' ? null : employeeId,
         employeeCount: targets.length,
         fromDate: workDate,
         toDate: holidayDate,
-        type:
-          scope === 'store'
-            ? 'Store Work ↔ Holiday'
-            : 'Work ↔ Holiday',
+        type: scope === 'store' ? 'Store Work ↔ Holiday' : 'Work ↔ Holiday',
         status: 'Approved',
         createdAt: new Date().toISOString(),
       }
 
-      return {
-        ...company,
-        records: nextRecords,
-        swapHistory: [swapEntry, ...(company.swapHistory || [])],
-      }
+      return withHistory(
+        company,
+        {
+          ...company,
+          records: nextRecords,
+          swapHistory: [swapEntry, ...(company.swapHistory || [])],
+        },
+        'swap',
+        `${workDate} → ${holidayDate}`,
+      )
     })
   }
 
@@ -661,13 +703,9 @@ export function AppProvider({ children }) {
           })
 
       const lateMinutes =
-        scheduledIn === 'OFF'
-          ? 0
-          : computeLateMinutes(scheduledIn, punchIn)
+        scheduledIn === 'OFF' ? 0 : computeLateMinutes(scheduledIn, punchIn)
       const otHours =
-        scheduledOut === 'OFF'
-          ? 0
-          : computeOtHours(scheduledOut, punchOut)
+        scheduledOut === 'OFF' ? 0 : computeOtHours(scheduledOut, punchOut)
 
       const record = {
         id: existing?.id ?? Math.max(0, ...next.map((r) => r.id), 0) + 1,
@@ -683,16 +721,18 @@ export function AppProvider({ children }) {
         otHours,
         scheduleSource: 'manual',
         leaveType: isLeave ? dayType : undefined,
-        remark:
-          remark !== undefined
-            ? remark || undefined
-            : existing?.remark,
+        remark: remark !== undefined ? remark || undefined : existing?.remark,
       }
 
       if (idx >= 0) next[idx] = record
       else next.push(record)
 
-      return { ...company, records: next }
+      return withHistory(
+        company,
+        { ...company, records: next },
+        'edit',
+        `${employeeId} · ${date}`,
+      )
     })
   }
 
@@ -759,6 +799,14 @@ export function AppProvider({ children }) {
         swapHistory: exportSwaps,
         summaryNotes: exportNotes,
         lastImport: activeCompany.lastImport ?? null,
+        activityHistory: (activeCompany.activityHistory || []).filter(
+          (e) =>
+            scope === 'all' ||
+            (e.changes.length > 0 &&
+              e.changes.every((c) =>
+                monthSet.has((c.after || c.before).date.slice(0, 7)),
+              )),
+        ),
       },
     }
   }
@@ -767,7 +815,10 @@ export function AppProvider({ children }) {
    * Save company shift routine settings.
    * applyToExisting: reclassify soft / punch-only rows with the new routine.
    */
-  function updateCompanySettings(nextSettings, { applyToExisting = true } = {}) {
+  function updateCompanySettings(
+    nextSettings,
+    { applyToExisting = true } = {},
+  ) {
     if (!activeCompanyId) return
     const settings = normalizeSettings(nextSettings)
     patchActiveCompany((company) => {
@@ -863,6 +914,7 @@ export function AppProvider({ children }) {
         records: incomingRecords,
         swapHistory: incomingSwaps,
         summaryNotes: incoming.summaryNotes || {},
+        activityHistory: incoming.activityHistory || [],
         lastImport: incoming.lastImport ?? null,
         settings: incoming.settings
           ? normalizeSettings(incoming.settings)
@@ -881,16 +933,22 @@ export function AppProvider({ children }) {
         incomingRecords.forEach((r) => {
           const key = keyOf(r)
           if (recMap.has(key)) {
-            recMap.set(key, { ...recMap.get(key), ...r, id: recMap.get(key).id })
+            recMap.set(key, {
+              ...recMap.get(key),
+              ...r,
+              id: recMap.get(key).id,
+            })
           } else {
             recMap.set(key, { ...r, id: nextId++ })
           }
         })
 
         const notes = { ...(company.summaryNotes || {}) }
-        Object.entries(incoming.summaryNotes || {}).forEach(([empId, byMonth]) => {
-          notes[empId] = { ...(notes[empId] || {}), ...(byMonth || {}) }
-        })
+        Object.entries(incoming.summaryNotes || {}).forEach(
+          ([empId, byMonth]) => {
+            notes[empId] = { ...(notes[empId] || {}), ...(byMonth || {}) }
+          },
+        )
 
         return {
           ...company,
@@ -903,6 +961,14 @@ export function AppProvider({ children }) {
           records: Array.from(recMap.values()),
           swapHistory: [...incomingSwaps, ...(company.swapHistory || [])],
           summaryNotes: notes,
+          activityHistory: [
+            ...new Map(
+              [
+                ...(company.activityHistory || []),
+                ...(incoming.activityHistory || []),
+              ].map((e) => [e.id, e]),
+            ).values(),
+          ].sort((a, b) => b.at.localeCompare(a.at)),
           lastImport: incoming.lastImport ?? company.lastImport,
         }
       })
@@ -915,12 +981,29 @@ export function AppProvider({ children }) {
     setTimeout(() => setUploadFeedback(null), 5000)
   }
 
+  if (!ready) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-600">
+        กำลังโหลดข้อมูลจาก MongoDB…
+      </div>
+    )
+  }
+
   const value = {
+    importPreview:
+      importPreview?.companyId === activeCompanyId ? importPreview : null,
+    cancelImport: () => setImportPreview(null),
+    confirmImport,
+    undoActivity,
+    activityHistory: activeCompany?.activityHistory || [],
     companies,
     activeCompany,
     activeCompanyId,
     companyName: activeCompany?.name ?? '',
     hasCompany: companies.length > 0,
+    ready,
+    saving,
+    loadError,
     employees,
     employeeMap,
     records,
