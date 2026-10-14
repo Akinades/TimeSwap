@@ -1,0 +1,3 @@
+# Keep devDependencies available during `vite build` on Railway
+[variables]
+NPM_CONFIG_PRODUCTION = "false"

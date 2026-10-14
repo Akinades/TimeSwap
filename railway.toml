@@ -1,9 +1,11 @@
 [build]
 builder = "NIXPACKS"
-buildCommand = "npm ci && npm run build"
+# Nixpacks already runs npm install — only build here.
+# Avoid `npm ci` (EBUSY on node_modules/.cache in Railway images).
+buildCommand = "npm run build"
 
 [deploy]
 startCommand = "npm start"
 healthcheckPath = "/api/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
