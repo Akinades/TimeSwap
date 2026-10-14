@@ -1,3 +1,13 @@
-# Keep devDependencies available during `vite build` on Railway
+# Railway/Nixpacks defaults to `npm ci`, which hits EBUSY on
+# node_modules/.cache when Docker cache mounts are used.
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"
+
 [variables]
 NPM_CONFIG_PRODUCTION = "false"

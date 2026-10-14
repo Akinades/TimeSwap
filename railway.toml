@@ -1,8 +1,5 @@
 [build]
 builder = "NIXPACKS"
-# Nixpacks already runs npm install — only build here.
-# Avoid `npm ci` (EBUSY on node_modules/.cache in Railway images).
-buildCommand = "npm run build"
 
 [deploy]
 startCommand = "npm start"
