@@ -44,8 +44,10 @@ Browsers cannot run JSX — you must deploy the **Vite `dist/` build**.
 
 ### Fix (recommended)
 
-1. In repo **Settings → Pages → Build and deployment → Source**, choose **GitHub Actions** (not “Deploy from a branch”).
-2. Push to `main` — workflow `.github/workflows/deploy-pages.yml` builds with `VITE_BASE=/TimeSwap/` and deploys `dist/`.
+1. Push to `main` — workflow builds with `VITE_BASE=/TimeSwap/` and publishes the `gh-pages` branch.
+2. In **Settings → Pages → Build and deployment**:
+   - Source: **Deploy from a branch**
+   - Branch: **`gh-pages`** / **`/(root)`**
 3. Site URL: `https://<user>.github.io/TimeSwap/`
 
 GitHub Pages is **static only** — it does **not** run Express/MongoDB.  
