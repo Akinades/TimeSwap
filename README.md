@@ -34,38 +34,48 @@ On first start, an admin is created from `.env` (`AUTH_USERNAME` / `AUTH_PASSWOR
 Each login account has its **own workspace** (companies / attendance). New users start empty.  
 Manage accounts from the **Admin** login tab → `/accounts`.
 
-## Production / GitHub Pages
+## Production (Railway / Render) — recommended
 
-### Why the site was blank / `main.jsx` 404
-
-GitHub Pages was set to **Deploy from a branch → `main` / (root)**.  
-That serves the **source** `index.html`, which points at `/src/main.jsx`.  
-Browsers cannot run JSX — you must deploy the **Vite `dist/` build**.
-
-### Fix (recommended)
-
-1. Push to `main` — workflow builds with `VITE_BASE=/TimeSwap/` and publishes the `gh-pages` branch.
-2. In **Settings → Pages → Build and deployment**:
-   - Source: **Deploy from a branch**
-   - Branch: **`gh-pages`** / **`/(root)`**
-3. Site URL: `https://<user>.github.io/TimeSwap/`
-
-GitHub Pages is **static only** — it does **not** run Express/MongoDB.  
-Host the API separately (Railway, Render, Fly.io, VPS), then set a repo variable:
-
-- **Settings → Secrets and variables → Actions → Variables**  
-  `VITE_API_BASE` = `https://your-api-host/api`
-
-Never put `MONGODB_URI`, `AUTH_PASSWORD`, or `AUTH_SECRET` in the frontend.
-
-### Host API + frontend together (simpler for login)
+Host **frontend + API together**. Express serves `dist/` and `/api` on one URL.
 
 ```bash
-npm run build
-npm start
+npm ci && npm run build && npm start
 ```
 
-Express serves `dist/` and `/api`. Use `VITE_BASE=/` (default) for that setup.
+### Environment variables (set in the host dashboard)
+
+| Variable | Required | Notes |
+|----------|----------|--------|
+| `MONGODB_URI` | yes | Atlas connection string |
+| `MONGODB_DB` | no | default `timeswap` |
+| `AUTH_USERNAME` | yes* | first admin (*only if users empty) |
+| `AUTH_PASSWORD` | yes* | first admin password |
+| `AUTH_SECRET` | yes | long random JWT secret |
+| `PORT` | no | host sets this automatically |
+
+In **MongoDB Atlas → Network Access**, allow `0.0.0.0/0` (or the host’s IPs) so Railway/Render can connect.
+
+Do **not** set `VITE_API_BASE` or `VITE_BASE` on Railway/Render — same origin `/api` is enough.
+
+### Railway
+
+1. [railway.app](https://railway.app) → New Project → Deploy from GitHub → this repo  
+2. Add the env vars above  
+3. Generate domain (Settings → Networking → Public Domain)  
+4. Open the URL and log in  
+
+`railway.toml` already sets build + start + `/api/health` check.
+
+### Render
+
+1. [render.com](https://render.com) → New → Blueprint → this repo (`render.yaml`)  
+   or New Web Service → connect repo  
+2. Build: `npm ci && npm run build` · Start: `npm start`  
+3. Add the same env vars · Deploy  
+
+### GitHub Pages (static only — no login API)
+
+Pages cannot run Express. Use only for a static demo, or point `VITE_API_BASE` at a hosted API. Prefer Railway/Render for the real app.
 
 ## Pages
 

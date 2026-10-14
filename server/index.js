@@ -234,10 +234,11 @@ app.get(/^(?!\/api).*/, (_req, res) => {
   })
 })
 
-const server = app.listen(PORT, async () => {
+// Bind all interfaces for Railway / Render / Docker
+const server = app.listen(PORT, '0.0.0.0', async () => {
   try {
     await getDb()
-    console.log(`TimeSwap API listening on http://localhost:${PORT}`)
+    console.log(`TimeSwap listening on http://0.0.0.0:${PORT}`)
   } catch (err) {
     console.error('Failed to connect MongoDB', err)
     process.exit(1)
