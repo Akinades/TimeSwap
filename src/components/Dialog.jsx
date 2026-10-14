@@ -13,6 +13,9 @@ export default function Dialog({ open, onClose, title, children }) {
     <dialog
       ref={ref}
       onCancel={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose?.()
+      }}
       aria-label={title}
       className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/50"
     >

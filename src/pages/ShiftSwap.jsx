@@ -30,6 +30,8 @@ import {
   displayPunches,
   isLeaveStatus,
   isOffDayRecord,
+  isAutoManagedRemark,
+  leaveRemarkForDayType,
   punchIssue,
   punchIssueLabel,
 } from '../lib/attendance'
@@ -142,6 +144,9 @@ export default function ShiftSwap() {
   const [savedMsg, setSavedMsg] = useState('')
   const [editOpen, setEditOpen] = useState(false)
   const [editEmployeeId, setEditEmployeeId] = useState('')
+  const [editBulkIds, setEditBulkIds] = useState([])
+  /** Which punch side(s) the form should edit: 'in' | 'out' | 'both' */
+  const [editPunchFocus, setEditPunchFocus] = useState('both')
   const [editDate, setEditDate] = useState('')
   const [editIn, setEditIn] = useState('')
   const [editOut, setEditOut] = useState('')
@@ -150,6 +155,9 @@ export default function ShiftSwap() {
   const [editTimePreset, setEditTimePreset] = useState('') // '' | 'scheduled' | 'fallback'
   const [dayIssuesOpen, setDayIssuesOpen] = useState(false)
   const [dayIssuesDate, setDayIssuesDate] = useState('')
+  const isBulkEdit = editBulkIds.length > 0
+  const showEditIn = editPunchFocus !== 'out'
+  const showEditOut = editPunchFocus !== 'in'
   const [matrixPage, setMatrixPage] = useState(1)
 
   const weekdays = t('swap.weekdays').split(',')
@@ -256,20 +264,64 @@ export default function ShiftSwap() {
   function openEditModal({ employeeId: empId, date }) {
     const rec = records.find((r) => r.employeeId === empId && r.date === date)
     const punches = displayPunches(rec)
+    const issue = punchIssue(rec)
+    const dayType = dayTypeFromRecord(rec)
+    setEditBulkIds([])
     setEditEmployeeId(empId)
     setEditDate(date)
-    setEditDayType(dayTypeFromRecord(rec))
+    setEditDayType(dayType)
+    setEditPunchFocus(
+      issue === 'no-in' ? 'in' : issue === 'no-out' ? 'out' : 'both',
+    )
     const leave = isLeaveStatus(rec?.status)
     const off = isOffDayRecord(rec) && !leave
     const noPunchDay = leave || off
-    setEditIn(
-      noPunchDay ? '' : punches.actualIn !== '—' ? punches.actualIn : '',
-    )
-    setEditOut(
-      noPunchDay ? '' : punches.actualOut !== '—' ? punches.actualOut : '',
-    )
-    setEditRemark(rec?.remark || '')
+    // Missing punch sides stay blank; keep existing times only for normal edits
+    if (issue === 'no-out' || issue === 'no-in') {
+      setEditIn('')
+      setEditOut('')
+    } else {
+      setEditIn(
+        noPunchDay ? '' : punches.actualIn !== '—' ? punches.actualIn : '',
+      )
+      setEditOut(
+        noPunchDay ? '' : punches.actualOut !== '—' ? punches.actualOut : '',
+      )
+    }
+    const existingRemark = rec?.remark || ''
+    if (dayType.startsWith('leave-')) {
+      setEditRemark(
+        isAutoManagedRemark(existingRemark)
+          ? leaveRemarkForDayType(dayType)
+          : existingRemark,
+      )
+    } else if (issue === 'no-in' || issue === 'no-out' || issue === 'no-both') {
+      setEditRemark(isAutoManagedRemark(existingRemark) ? '' : existingRemark)
+    } else {
+      setEditRemark(isAutoManagedRemark(existingRemark) ? '' : existingRemark)
+    }
     setEditTimePreset('')
+    setEditOpen(true)
+  }
+
+  function openBulkEditModal(date) {
+    const issues = storeDayMap[date]?.issues || []
+    if (!issues.length) return
+    const ids = issues.map((item) => item.employeeId)
+    const issueTypes = [...new Set(issues.map((item) => item.issue))]
+    const onlyOut = issueTypes.length === 1 && issueTypes[0] === 'no-out'
+    const onlyIn = issueTypes.length === 1 && issueTypes[0] === 'no-in'
+    setEditBulkIds(ids)
+    setEditEmployeeId('')
+    setEditDate(date)
+    setEditDayType('work')
+    setEditPunchFocus(onlyOut ? 'out' : onlyIn ? 'in' : 'both')
+    // Never auto-fill times — user enters only the missing side
+    setEditIn('')
+    setEditOut('')
+    setEditRemark('')
+    setEditTimePreset('')
+    setDayIssuesOpen(false)
     setEditOpen(true)
   }
 
@@ -295,26 +347,77 @@ export default function ShiftSwap() {
   }
 
   function handleSaveEdit() {
-    if (!editEmployeeId || !editDate) return
+    if (!editDate) return
     const isLeave = editDayType.startsWith('leave-')
     const isOff = editDayType === 'off' || isLeave
-    upsertAttendanceRecord({
-      employeeId: editEmployeeId,
-      date: editDate,
-      actualIn: isOff ? '' : editIn,
-      actualOut: isOff ? '' : editOut,
-      dayType: editDayType,
-      remark: editRemark,
-    })
-    setSavedMsg(
-      t('swap.savedEdit', {
-        name: employeeMap[editEmployeeId]?.name || editEmployeeId,
+    const targets = isBulkEdit
+      ? editBulkIds
+      : editEmployeeId
+        ? [editEmployeeId]
+        : []
+    if (!targets.length) return
+
+    targets.forEach((empId) => {
+      const rec = records.find(
+        (r) => r.employeeId === empId && r.date === editDate,
+      )
+      const punches = displayPunches(rec)
+      const keepIn =
+        punches.actualIn && punches.actualIn !== '—' ? punches.actualIn : ''
+      const keepOut =
+        punches.actualOut && punches.actualOut !== '—' ? punches.actualOut : ''
+
+      let actualIn = ''
+      let actualOut = ''
+      if (!isOff) {
+        if (editPunchFocus === 'out') {
+          actualIn = keepIn
+          actualOut = editOut || keepOut
+        } else if (editPunchFocus === 'in') {
+          actualIn = editIn || keepIn
+          actualOut = keepOut
+        } else if (isBulkEdit) {
+          actualIn = editIn || keepIn
+          actualOut = editOut || keepOut
+        } else {
+          actualIn = editIn
+          actualOut = editOut
+        }
+      }
+
+      upsertAttendanceRecord({
+        employeeId: empId,
         date: editDate,
-      }),
+        actualIn,
+        actualOut,
+        dayType: editDayType,
+        remark: editRemark,
+      })
+    })
+
+    setSavedMsg(
+      isBulkEdit
+        ? t('swap.savedBulkEdit', {
+            count: targets.length,
+            date: editDate,
+          })
+        : t('swap.savedEdit', {
+            name: employeeMap[editEmployeeId]?.name || editEmployeeId,
+            date: editDate,
+          }),
     )
     setEditOpen(false)
+    setEditBulkIds([])
+    setEditPunchFocus('both')
     setEditTimePreset('')
     setTimeout(() => setSavedMsg(''), 4000)
+  }
+
+  function closeEditModal() {
+    setEditOpen(false)
+    setEditBulkIds([])
+    setEditPunchFocus('both')
+    setEditTimePreset('')
   }
 
   function openDayIssues(date) {
@@ -770,8 +873,17 @@ export default function ShiftSwap() {
       </section>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setModalOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-900">
                 {t('swap.modal.title')}
@@ -880,74 +992,95 @@ export default function ShiftSwap() {
                 />
               </div>
             </div>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setModalOpen(false)}
-                className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
-              >
-                {t('common.cancel')}
-              </button>
-              <p className="mr-auto text-xs text-slate-500">
-                {t('flow.affected', {
-                  count: modalScope === 'store' ? employees.length : 1,
-                  from: workDate || '—',
-                  to: holidayDate || '—',
-                })}
-              </p>
-              <button
-                type="button"
-                onClick={handleSaveSwap}
-                disabled={
-                  !workDate ||
-                  !holidayDate ||
-                  workDate === holidayDate ||
-                  (modalScope === 'person' && !employeeId)
-                }
-                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {t('swap.modal.save')}
-              </button>
+            <div className="mt-6 space-y-3">
+              {workDate && holidayDate ? (
+                <p className="text-xs leading-relaxed text-slate-500">
+                  {t('flow.affected', {
+                    count: modalScope === 'store' ? employees.length : 1,
+                    from: workDate,
+                    to: holidayDate,
+                  })}
+                </p>
+              ) : null}
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSwap}
+                  disabled={
+                    !workDate ||
+                    !holidayDate ||
+                    workDate === holidayDate ||
+                    (modalScope === 'person' && !employeeId)
+                  }
+                  className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t('swap.modal.save')}
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
       {editOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={closeEditModal}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Pencil className="h-5 w-5 text-teal-600" />
                 <h3 className="text-lg font-semibold text-slate-900">
-                  {t('swap.edit.title')}
+                  {isBulkEdit
+                    ? t('swap.edit.bulkTitle', { count: editBulkIds.length })
+                    : t('swap.edit.title')}
                 </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setEditOpen(false)}
+                onClick={closeEditModal}
                 className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            {(() => {
-              const rec = records.find(
-                (r) => r.employeeId === editEmployeeId && r.date === editDate,
-              )
-              const issue = punchIssue(rec)
-              return issue ? (
-                <p className="mb-4 flex items-start gap-2 rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  {punchIssueLabel(issue, t)} — {t('swap.edit.issueHint')}
-                </p>
-              ) : (
-                <p className="mb-4 text-sm text-slate-500">
-                  {t('swap.edit.hint')}
-                </p>
-              )
-            })()}
+            {isBulkEdit ? (
+              <p className="mb-4 flex items-start gap-2 rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                {editPunchFocus === 'out'
+                  ? t('swap.edit.fixOutOnly')
+                  : editPunchFocus === 'in'
+                    ? t('swap.edit.fixInOnly')
+                    : t('swap.edit.bulkHint')}
+              </p>
+            ) : editPunchFocus === 'out' ? (
+              <p className="mb-4 flex items-start gap-2 rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                {t('swap.edit.fixOutOnly')}
+              </p>
+            ) : editPunchFocus === 'in' ? (
+              <p className="mb-4 flex items-start gap-2 rounded-lg bg-orange-50 px-3 py-2 text-sm text-orange-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                {t('swap.edit.fixInOnly')}
+              </p>
+            ) : (
+              <p className="mb-4 text-sm text-slate-500">{t('swap.edit.hint')}</p>
+            )}
 
             <div className="space-y-3">
               <div>
@@ -955,10 +1088,21 @@ export default function ShiftSwap() {
                   {t('common.employee')}
                 </label>
                 <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
-                  {employeeMap[editEmployeeId]?.name || editEmployeeId}
-                  {employeeMap[editEmployeeId]?.department
-                    ? ` · ${employeeMap[editEmployeeId].department}`
-                    : ''}
+                  {isBulkEdit
+                    ? editBulkIds
+                        .map(
+                          (id) => employeeMap[id]?.name || id,
+                        )
+                        .slice(0, 4)
+                        .join(', ') +
+                      (editBulkIds.length > 4
+                        ? ` … (+${editBulkIds.length - 4})`
+                        : '')
+                    : `${employeeMap[editEmployeeId]?.name || editEmployeeId}${
+                        employeeMap[editEmployeeId]?.department
+                          ? ` · ${employeeMap[editEmployeeId].department}`
+                          : ''
+                      }`}
                 </p>
               </div>
               <div>
@@ -983,6 +1127,13 @@ export default function ShiftSwap() {
                       setEditIn('')
                       setEditOut('')
                     }
+                    setEditRemark((prev) => {
+                      if (prev.trim() && !isAutoManagedRemark(prev)) return prev
+                      if (next.startsWith('leave-')) {
+                        return leaveRemarkForDayType(next)
+                      }
+                      return ''
+                    })
                   }}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
                 >
@@ -1005,7 +1156,7 @@ export default function ShiftSwap() {
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {!editIn && !editOut && (
+                  {editPunchFocus === 'both' && !editIn && !editOut && (
                     <div className="rounded-lg bg-slate-50 px-3 py-2.5">
                       <label className="flex items-center gap-2 text-sm text-slate-700">
                         <input
@@ -1035,32 +1186,36 @@ export default function ShiftSwap() {
                       </label>
                     </div>
                   )}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-500">
-                      {t('swap.edit.in')}
-                    </label>
-                    <TimeInput24
-                      value={editIn}
-                      onChange={(v) => {
-                        setEditIn(v)
-                        setEditTimePreset('')
-                      }}
-                      className="w-full"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-500">
-                      {t('swap.edit.out')}
-                    </label>
-                    <TimeInput24
-                      value={editOut}
-                      onChange={(v) => {
-                        setEditOut(v)
-                        setEditTimePreset('')
-                      }}
-                      className="w-full"
-                    />
-                  </div>
+                  {showEditIn ? (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-500">
+                        {t('swap.edit.in')}
+                      </label>
+                      <TimeInput24
+                        value={editIn}
+                        onChange={(v) => {
+                          setEditIn(v)
+                          setEditTimePreset('')
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+                  ) : null}
+                  {showEditOut ? (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-500">
+                        {t('swap.edit.out')}
+                      </label>
+                      <TimeInput24
+                        value={editOut}
+                        onChange={(v) => {
+                          setEditOut(v)
+                          setEditTimePreset('')
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+                  ) : null}
                 </div>
               )}
               <div>
@@ -1079,7 +1234,7 @@ export default function ShiftSwap() {
             <div className="mt-6 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setEditOpen(false)}
+                onClick={closeEditModal}
                 className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
               >
                 {t('common.cancel')}
@@ -1097,8 +1252,17 @@ export default function ShiftSwap() {
       )}
 
       {dayIssuesOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setDayIssuesOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">
@@ -1140,17 +1304,28 @@ export default function ShiftSwap() {
                 </li>
               ))}
             </ul>
-            <div className="mt-4 flex justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setDayIssuesOpen(false)
-                  openSwapModal({ scope: 'store', date: dayIssuesDate })
-                }}
-                className="rounded-lg px-3 py-2 text-sm text-teal-700 hover:bg-teal-50"
-              >
-                {t('swap.issues.storeSwap')}
-              </button>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-1">
+                {view === 'store' ? (
+                  <button
+                    type="button"
+                    onClick={() => openBulkEditModal(dayIssuesDate)}
+                    className="rounded-lg bg-teal-600 px-3 py-2 text-sm font-medium text-white hover:bg-teal-700"
+                  >
+                    {t('swap.issues.editAll')}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDayIssuesOpen(false)
+                    openSwapModal({ scope: 'store', date: dayIssuesDate })
+                  }}
+                  className="rounded-lg px-3 py-2 text-sm text-teal-700 hover:bg-teal-50"
+                >
+                  {t('swap.issues.storeSwap')}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => setDayIssuesOpen(false)}

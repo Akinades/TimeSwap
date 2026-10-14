@@ -12,7 +12,9 @@ import {
   computeOtHours,
   deriveStatus,
   formatTime,
+  punchIssue,
   statusForDayType,
+  syncAttendanceRemark,
   todayISO,
 } from '../lib/attendance'
 import { fetchWorkspace, saveWorkspace } from '../lib/api'
@@ -246,6 +248,15 @@ export function AppProvider({ children }) {
     )
   }
 
+  function normalizeStartDate(value) {
+    const raw = String(value || '').trim()
+    if (!raw) return ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      throw new Error('รูปแบบวันที่เริ่มทำงานไม่ถูกต้อง')
+    }
+    return raw
+  }
+
   function addEmployee({
     id,
     name,
@@ -253,6 +264,7 @@ export function AppProvider({ children }) {
     phone = '',
     email = '',
     note = '',
+    startDate = '',
   } = {}) {
     if (!activeCompanyId) throw new Error('ยังไม่มีบริษัทที่ใช้งาน')
     const trimmedName = String(name || '').trim()
@@ -270,6 +282,7 @@ export function AppProvider({ children }) {
       phone: String(phone || '').trim(),
       email: String(email || '').trim(),
       note: String(note || '').trim(),
+      startDate: normalizeStartDate(startDate),
       active: true,
     }
     patchActiveCompany((company) => ({
@@ -300,6 +313,8 @@ export function AppProvider({ children }) {
           next.email = String(patch.email || '').trim()
         if (patch.note !== undefined)
           next.note = String(patch.note || '').trim()
+        if (patch.startDate !== undefined)
+          next.startDate = normalizeStartDate(patch.startDate)
         if (patch.active !== undefined) next.active = Boolean(patch.active)
         return next
       })
@@ -707,6 +722,20 @@ export function AppProvider({ children }) {
       const otHours =
         scheduledOut === 'OFF' ? 0 : computeOtHours(scheduledOut, punchOut)
 
+      const incomingRemark =
+        remark !== undefined ? remark || '' : existing?.remark || ''
+      const draft = {
+        scheduledIn,
+        scheduledOut,
+        actualIn: punchIn,
+        actualOut: punchOut,
+        status,
+      }
+      const syncedRemark = syncAttendanceRemark(incomingRemark, {
+        dayType,
+        issue: punchIssue(draft),
+      })
+
       const record = {
         id: existing?.id ?? Math.max(0, ...next.map((r) => r.id), 0) + 1,
         employeeId,
@@ -721,7 +750,7 @@ export function AppProvider({ children }) {
         otHours,
         scheduleSource: 'manual',
         leaveType: isLeave ? dayType : undefined,
-        remark: remark !== undefined ? remark || undefined : existing?.remark,
+        remark: syncedRemark || undefined,
       }
 
       if (idx >= 0) next[idx] = record

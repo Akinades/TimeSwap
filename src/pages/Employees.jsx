@@ -11,6 +11,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { useI18n } from '../i18n/I18nContext'
 import { currentMonthISO } from '../lib/attendance'
+import { computeTenure, formatStartDate } from '../lib/tenure'
 
 function emptyForm() {
   return {
@@ -20,7 +21,19 @@ function emptyForm() {
     phone: '',
     email: '',
     note: '',
+    startDate: '',
   }
+}
+
+function formatTenureLabel(tenure, t) {
+  if (!tenure) return null
+  const parts = []
+  if (tenure.years > 0) parts.push(t('emp.tenureYears', { n: tenure.years }))
+  if (tenure.months > 0) parts.push(t('emp.tenureMonths', { n: tenure.months }))
+  if (tenure.days > 0 || parts.length === 0) {
+    parts.push(t('emp.tenureDays', { n: tenure.days }))
+  }
+  return parts.join(' ')
 }
 
 function StatBox({ label, value, tone = 'slate' }) {
@@ -173,6 +186,7 @@ export default function Employees() {
       phone: emp.phone || '',
       email: emp.email || '',
       note: emp.note || '',
+      startDate: emp.startDate || '',
     })
     setError('')
     setModalOpen(true)
@@ -189,6 +203,7 @@ export default function Employees() {
           phone: form.phone,
           email: form.email,
           note: form.note,
+          startDate: form.startDate,
         })
         setSelectedId(editingId)
       } else {
@@ -200,6 +215,14 @@ export default function Employees() {
       setError(err.message || t('emp.errorSave'))
     }
   }
+
+  const selectedTenure = selected
+    ? computeTenure(selected.startDate)
+    : null
+  const selectedTenureLabel = formatTenureLabel(selectedTenure, t)
+  const selectedStartLabel = selected
+    ? formatStartDate(selected.startDate, locale.startsWith('zh') ? 'zh' : locale.startsWith('en') ? 'en' : 'th')
+    : null
 
   function confirmDelete() {
     if (!deleteId) return
@@ -364,6 +387,9 @@ export default function Employees() {
                         <p className="truncate font-medium">{emp.name}</p>
                         <p className="truncate text-xs text-slate-400">
                           {emp.department || '—'}
+                          {emp.startDate
+                            ? ` · ${formatTenureLabel(computeTenure(emp.startDate), t) || ''}`
+                            : ''}
                         </p>
                       </div>
                     </button>
@@ -415,6 +441,25 @@ export default function Employees() {
               </div>
 
               <dl className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-teal-50 px-3 py-2.5 sm:col-span-2">
+                  <dt className="text-xs text-teal-700/70">{t('emp.tenure')}</dt>
+                  <dd className="mt-0.5 text-sm font-medium text-teal-900">
+                    {selectedTenureLabel ? (
+                      <>
+                        {selectedTenureLabel}
+                        {selectedStartLabel ? (
+                          <span className="ml-2 font-normal text-teal-700/70">
+                            ({t('emp.startDate')} {selectedStartLabel})
+                          </span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="font-normal text-slate-500">
+                        {t('emp.tenureNone')}
+                      </span>
+                    )}
+                  </dd>
+                </div>
                 <div className="rounded-xl bg-slate-50 px-3 py-2.5">
                   <dt className="text-xs text-slate-400">{t('emp.phone')}</dt>
                   <dd className="mt-0.5 text-sm text-slate-800">
@@ -492,8 +537,17 @@ export default function Employees() {
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setModalOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-900">
                 {editingId ? t('emp.editTitle') : t('emp.addTitle')}
@@ -552,6 +606,22 @@ export default function Employees() {
                     <option key={d} value={d} />
                   ))}
                 </datalist>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-slate-500">
+                  {t('emp.startDate')}
+                </label>
+                <input
+                  type="date"
+                  value={form.startDate}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, startDate: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-teal-500"
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {t('emp.startDateHint')}
+                </p>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">
@@ -617,8 +687,17 @@ export default function Employees() {
       )}
 
       {deleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => setDeleteId(null)}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+          >
             <h3 className="text-lg font-semibold text-slate-900">
               {t('emp.deleteTitle')}
             </h3>

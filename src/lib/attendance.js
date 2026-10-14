@@ -321,6 +321,99 @@ export function punchIssueLabel(issue, t) {
   return ''
 }
 
+/** Known auto-generated missing-punch remarks (any locale) */
+const AUTO_PUNCH_REMARKS = new Set([
+  'ไม่สแกนเข้า',
+  'ไม่สแกนออก',
+  'ไม่มีเวลาเข้า-ออก',
+  'ขาดเข้า',
+  'ขาดออก',
+  'Missing clock-in',
+  'Missing clock-out',
+  'No in/out times',
+  'Missed in',
+  'Missed out',
+  '未打上班卡',
+  '未打下班卡',
+  '无上下班时间',
+  '缺上班',
+  '缺下班',
+])
+
+export function isAutoPunchRemark(remark) {
+  const s = String(remark || '').trim()
+  if (!s) return false
+  return AUTO_PUNCH_REMARKS.has(s)
+}
+
+/**
+ * Keep custom remarks; sync auto missing-punch notes with the current issue.
+ * Empty remark is treated as auto-managed.
+ */
+export function syncRemarkWithPunchIssue(currentRemark, issue, labelFn) {
+  const trimmed = String(currentRemark || '').trim()
+  const autoManaged = !trimmed || isAutoPunchRemark(trimmed)
+  if (!autoManaged) return trimmed
+  if (!issue) return ''
+  if (typeof labelFn === 'function') return labelFn(issue) || ''
+  return punchIssueLabel(issue)
+}
+
+/** Canonical leave remarks stored on the record (Thai). */
+export function leaveRemarkForDayType(dayType) {
+  if (dayType === 'leave-personal') return 'ลากิจ'
+  if (dayType === 'leave-sick') return 'ลาป่วย'
+  if (dayType === 'leave-vacation') return 'ลาพักร้อน'
+  return ''
+}
+
+const AUTO_LEAVE_REMARKS = new Set([
+  'ลากิจ',
+  'ลาป่วย',
+  'ลาพักร้อน',
+  'ลาส่วนตัว',
+  'Personal leave',
+  'Sick leave',
+  'Annual leave',
+  'Vacation',
+  '事假',
+  '病假',
+  '年假',
+])
+
+export function isAutoLeaveRemark(remark) {
+  const s = String(remark || '').trim()
+  if (!s) return false
+  return AUTO_LEAVE_REMARKS.has(s)
+}
+
+export function isAutoManagedRemark(remark) {
+  const s = String(remark || '').trim()
+  if (!s) return true
+  return isAutoPunchRemark(s) || isAutoLeaveRemark(s)
+}
+
+/**
+ * Sync remark for day type + punch issue.
+ * Leave → ลากิจ / ลาป่วย / ลาพักร้อน
+ * Work with missing punch → ไม่สแกน…
+ * Custom remarks are never overwritten.
+ */
+export function syncAttendanceRemark(currentRemark, { dayType, issue } = {}) {
+  const trimmed = String(currentRemark || '').trim()
+  if (!isAutoManagedRemark(trimmed)) return trimmed
+
+  if (dayType && String(dayType).startsWith('leave-')) {
+    return leaveRemarkForDayType(dayType)
+  }
+
+  if (dayType === 'work' && issue) {
+    return punchIssueLabel(issue)
+  }
+
+  return ''
+}
+
 /** Display-ready times after schedule-aware single-punch fix */
 export function displayPunches(record) {
   return resolvePunches(record)

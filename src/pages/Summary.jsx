@@ -409,9 +409,10 @@ export default function Summary() {
       ]
         .filter(Boolean)
         .join(' · ')
+      const issueLabel = r.issue ? punchIssueLabel(r.issue, t) : ''
       const note = [
-        r.remark,
-        r.issue ? punchIssueLabel(r.issue, t) : '',
+        r.remark && r.remark !== issueLabel ? r.remark : '',
+        issueLabel,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -719,12 +720,17 @@ export default function Summary() {
                         </div>
                       </td>
                       <td className="max-w-[180px] px-4 py-3 text-xs text-slate-500">
-                        {[
-                          r.remark,
-                          r.issue ? punchIssueLabel(r.issue, t) : '',
-                        ]
-                          .filter(Boolean)
-                          .join(' · ') || '—'}
+                        {(() => {
+                          const issueLabel = r.issue
+                            ? punchIssueLabel(r.issue, t)
+                            : ''
+                          const parts = []
+                          if (r.remark && r.remark !== issueLabel) {
+                            parts.push(r.remark)
+                          }
+                          if (issueLabel) parts.push(issueLabel)
+                          return parts.join(' · ') || '—'
+                        })()}
                       </td>
                     </tr>
                   )
