@@ -25,6 +25,7 @@ import {
   normalizeSettings,
 } from '../lib/shiftRoutine'
 
+import { writeStoreDay } from '../lib/storeDay'
 import { planImport, withHistory, undoHistory } from '../lib/workflow'
 
 const AppContext = createContext(null)
@@ -629,6 +630,61 @@ export function AppProvider({ children }) {
   }
 
   /**
+   * Store-wide day assignment without a paired swap.
+   * dayType: 'work' | 'off'
+   * useStandard: fill missing punches with company standard hours (work only)
+   */
+  function setStoreDay({ date, dayType, useStandard = false }) {
+    if (!activeCompanyId || !date) return
+    if (dayType !== 'work' && dayType !== 'off') return
+
+    patchActiveCompany((company) => {
+      const targets = company.employees.map((e) => e.id)
+      if (!targets.length) return company
+
+      const cfg = normalizeSettings(company.settings)
+      const next = [...company.records]
+      let seq = Math.max(0, ...next.map((r) => Number(r.id) || 0), 0)
+      const nextId = () => {
+        seq += 1
+        return seq
+      }
+
+      targets.forEach((id) => {
+        writeStoreDay(next, id, date, dayType, {
+          cfg,
+          useStandard: dayType === 'work' && useStandard,
+          nextId,
+        })
+      })
+
+      const swapEntry = {
+        id: `SWAP-${createCompanyId()}`,
+        scope: 'store',
+        employeeId: null,
+        employeeCount: targets.length,
+        fromDate: date,
+        toDate: null,
+        dayType,
+        type: dayType === 'off' ? 'Store Holiday' : 'Store Work',
+        status: 'Approved',
+        createdAt: new Date().toISOString(),
+      }
+
+      return withHistory(
+        company,
+        {
+          ...company,
+          records: next,
+          swapHistory: [swapEntry, ...(company.swapHistory || [])],
+        },
+        'swap',
+        dayType === 'off' ? `${date} → OFF` : `${date} → work`,
+      )
+    })
+  }
+
+  /**
    * Create or update one attendance cell (employee + date).
    * dayType: 'work' | 'off'
    */
@@ -1038,6 +1094,7 @@ export function AppProvider({ children }) {
     clearData,
     clearAllData,
     swapShift,
+    setStoreDay,
     upsertAttendanceRecord,
     updateCompanySettings,
     downloadBackup,

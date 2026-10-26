@@ -126,6 +126,7 @@ export default function ShiftSwap() {
     records,
     employeeMap,
     swapShift,
+    setStoreDay,
     pendingSwaps,
     hasData,
     upsertAttendanceRecord,
@@ -139,6 +140,10 @@ export default function ShiftSwap() {
   const [month, setMonth] = useState(currentMonthISO())
   const [modalOpen, setModalOpen] = useState(false)
   const [modalScope, setModalScope] = useState('store')
+  /** store modal: 'swap' pairs two dates, 'set' assigns one date as work or off */
+  const [modalAction, setModalAction] = useState('swap')
+  const [storeDayType, setStoreDayType] = useState('off')
+  const [storeUseStandard, setStoreUseStandard] = useState(false)
   const [workDate, setWorkDate] = useState('')
   const [holidayDate, setHolidayDate] = useState('')
   const [savedMsg, setSavedMsg] = useState('')
@@ -257,6 +262,9 @@ export default function ShiftSwap() {
 
   function openSwapModal({ scope, date }) {
     setModalScope(scope)
+    setModalAction('swap')
+    setStoreDayType('off')
+    setStoreUseStandard(false)
     if (date) setWorkDate(date)
     setModalOpen(true)
   }
@@ -430,7 +438,36 @@ export default function ShiftSwap() {
     openSwapModal({ scope: 'store', date })
   }
 
+  function closeSwapModal() {
+    setModalOpen(false)
+    setWorkDate('')
+    setHolidayDate('')
+    setModalAction('swap')
+    setStoreDayType('off')
+    setStoreUseStandard(false)
+  }
+
   function handleSaveSwap() {
+    const assigningStoreDay = modalScope === 'store' && modalAction === 'set'
+
+    if (assigningStoreDay) {
+      if (!workDate) return
+      setStoreDay({
+        date: workDate,
+        dayType: storeDayType,
+        useStandard: storeDayType === 'work' && storeUseStandard,
+      })
+      setSavedMsg(
+        t(storeDayType === 'off' ? 'swap.savedStoreOff' : 'swap.savedStoreWork', {
+          date: workDate,
+          count: employees.length,
+        }),
+      )
+      closeSwapModal()
+      setTimeout(() => setSavedMsg(''), 5000)
+      return
+    }
+
     if (!workDate || !holidayDate || workDate === holidayDate) return
     if (modalScope === 'person' && !employeeId) return
 
@@ -454,9 +491,7 @@ export default function ShiftSwap() {
             holiday: holidayDate,
           }),
     )
-    setModalOpen(false)
-    setWorkDate('')
-    setHolidayDate('')
+    closeSwapModal()
     setTimeout(() => setSavedMsg(''), 5000)
   }
 
@@ -859,7 +894,15 @@ export default function ShiftSwap() {
                   </span>
                   <span className="text-slate-400">
                     {' '}
-                    · {s.fromDate} ↔ {s.toDate}
+                    ·{' '}
+                    {s.dayType
+                      ? t(
+                          s.dayType === 'off'
+                            ? 'swap.historySetOff'
+                            : 'swap.historySetWork',
+                          { date: s.fromDate },
+                        )
+                      : `${s.fromDate} ↔ ${s.toDate}`}
                   </span>
                 </span>
                 <div className="flex items-center gap-2">
@@ -875,7 +918,7 @@ export default function ShiftSwap() {
       {modalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-          onClick={() => setModalOpen(false)}
+          onClick={closeSwapModal}
           role="presentation"
         >
           <div
@@ -886,11 +929,13 @@ export default function ShiftSwap() {
           >
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-900">
-                {t('swap.modal.title')}
+                {modalScope === 'store' && modalAction === 'set'
+                  ? t('swap.modal.setTitle')
+                  : t('swap.modal.title')}
               </h3>
               <button
                 type="button"
-                onClick={() => setModalOpen(false)}
+                onClick={closeSwapModal}
                 className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-5 w-5" />
@@ -922,9 +967,38 @@ export default function ShiftSwap() {
               </button>
             </div>
 
+            {modalScope === 'store' && (
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setModalAction('swap')}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                    modalAction === 'swap'
+                      ? 'border-teal-600 bg-teal-50 text-teal-800'
+                      : 'border-slate-200 text-slate-600'
+                  }`}
+                >
+                  {t('swap.modal.modeSwap')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalAction('set')}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium ${
+                    modalAction === 'set'
+                      ? 'border-teal-600 bg-teal-50 text-teal-800'
+                      : 'border-slate-200 text-slate-600'
+                  }`}
+                >
+                  {t('swap.modal.modeSet')}
+                </button>
+              </div>
+            )}
+
             <p className="mb-4 text-sm text-slate-500">
               {modalScope === 'store'
-                ? t('swap.storeHintCount', { count: employees.length })
+                ? modalAction === 'set'
+                  ? t('swap.modal.setHint', { count: employees.length })
+                  : t('swap.storeHintCount', { count: employees.length })
                 : t('swap.modal.personHint')}
             </p>
 
@@ -969,31 +1043,119 @@ export default function ShiftSwap() {
                   </div>
                 </>
               )}
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  {t('swap.modal.workToOff')}
-                </label>
-                <input
-                  type="date"
-                  value={workDate}
-                  onChange={(e) => setWorkDate(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  {t('swap.modal.offToWork')}
-                </label>
-                <input
-                  type="date"
-                  value={holidayDate}
-                  onChange={(e) => setHolidayDate(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                />
-              </div>
+              {modalScope === 'store' && modalAction === 'set' ? (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">
+                      {t('swap.modal.setDate')}
+                    </label>
+                    <input
+                      type="date"
+                      value={workDate}
+                      onChange={(e) => setWorkDate(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">
+                      {t('swap.modal.setDayType')}
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setStoreDayType('work')}
+                        className={`rounded-lg border px-3 py-2.5 text-sm font-medium ${
+                          storeDayType === 'work'
+                            ? 'border-teal-600 bg-emerald-50 text-emerald-800'
+                            : 'border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {t('swap.edit.workDay')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setStoreDayType('off')}
+                        className={`rounded-lg border px-3 py-2.5 text-sm font-medium ${
+                          storeDayType === 'off'
+                            ? 'border-teal-600 bg-slate-100 text-slate-800'
+                            : 'border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {t('swap.edit.offDay')}
+                      </button>
+                    </div>
+                  </div>
+                  {storeDayType === 'off' ? (
+                    <p className="rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-700">
+                      {t('swap.modal.offExtraHint')}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        {t('swap.modal.workExtraHint')}
+                      </p>
+                      <label className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={storeUseStandard}
+                          onChange={(e) => setStoreUseStandard(e.target.checked)}
+                        />
+                        <span>
+                          {t('swap.edit.useStandard')}
+                          {companySettings?.standardIn &&
+                          companySettings?.standardOut ? (
+                            <span className="text-slate-400">
+                              {' '}
+                              ({companySettings.standardIn}–
+                              {companySettings.standardOut})
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">
+                      {t('swap.modal.workToOff')}
+                    </label>
+                    <input
+                      type="date"
+                      value={workDate}
+                      onChange={(e) => setWorkDate(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-500">
+                      {t('swap.modal.offToWork')}
+                    </label>
+                    <input
+                      type="date"
+                      value={holidayDate}
+                      onChange={(e) => setHolidayDate(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                </>
+              )}
             </div>
             <div className="mt-6 space-y-3">
-              {workDate && holidayDate ? (
+              {modalScope === 'store' && modalAction === 'set' && workDate ? (
+                <p className="text-xs leading-relaxed text-slate-500">
+                  {t('swap.modal.setAffected', {
+                    count: employees.length,
+                    date: workDate,
+                    day: t(
+                      storeDayType === 'off'
+                        ? 'swap.edit.offDay'
+                        : 'swap.edit.workDay',
+                    ),
+                  })}
+                </p>
+              ) : workDate && holidayDate ? (
                 <p className="text-xs leading-relaxed text-slate-500">
                   {t('flow.affected', {
                     count: modalScope === 'store' ? employees.length : 1,
@@ -1005,7 +1167,7 @@ export default function ShiftSwap() {
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setModalOpen(false)}
+                  onClick={closeSwapModal}
                   className="rounded-lg px-4 py-2 text-sm text-slate-600 hover:bg-slate-100"
                 >
                   {t('common.cancel')}
@@ -1014,14 +1176,18 @@ export default function ShiftSwap() {
                   type="button"
                   onClick={handleSaveSwap}
                   disabled={
-                    !workDate ||
-                    !holidayDate ||
-                    workDate === holidayDate ||
-                    (modalScope === 'person' && !employeeId)
+                    modalScope === 'store' && modalAction === 'set'
+                      ? !workDate
+                      : !workDate ||
+                        !holidayDate ||
+                        workDate === holidayDate ||
+                        (modalScope === 'person' && !employeeId)
                   }
                   className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {t('swap.modal.save')}
+                  {modalScope === 'store' && modalAction === 'set'
+                    ? t('swap.modal.saveSet')
+                    : t('swap.modal.save')}
                 </button>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { shiftRules } from '../config'
+import { shiftRules } from '../config.js'
 
 /** Parse "HH:mm" or "H:mm" to minutes since midnight. Returns null if invalid/OFF/empty. */
 export function timeToMinutes(value) {

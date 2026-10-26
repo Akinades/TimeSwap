@@ -296,6 +296,20 @@ export const translations = {
     'swap.modal.workToOff': 'วันทำงาน → วันหยุด (OFF)',
     'swap.modal.offToWork': 'วันหยุด → วันเปิดร้าน / ทำงาน',
     'swap.modal.save': 'บันทึกการสลับ',
+    'swap.modal.modeSwap': 'สลับวันหยุด',
+    'swap.modal.modeSet': 'กำหนดวัน',
+    'swap.modal.setTitle': 'กำหนดวันทั้งร้าน',
+    'swap.modal.setHint':
+      'กำหนดให้พนักงานทุกคน ({count} คน) เป็นวันทำงานหรือวันหยุด โดยไม่ต้องสลับคู่กัน',
+    'swap.modal.setDate': 'วันที่',
+    'swap.modal.setDayType': 'วันนี้เป็น',
+    'swap.modal.offExtraHint':
+      'เช่น ร้านเพิ่มวันหยุดให้ โดยไม่ต้องไปทำงานชดเชยอีกวัน',
+    'swap.modal.workExtraHint':
+      'เปิดเป็นวันทำงานทั้งร้าน โดยไม่ต้องสลับมาจากวันหยุด ถ้ายังไม่มีเวลาสแกน ให้ติ๊กใช้เวลามาตรฐาน',
+    'swap.modal.setAffected':
+      'จะกำหนดให้พนักงาน {count} คน ในวันที่ {date} เป็น{day}',
+    'swap.modal.saveSet': 'บันทึกทั้งร้าน',
     'swap.edit.title': 'แก้ไขเวลาเข้า–ออก',
     'swap.edit.hint': 'เพิ่มหรือแก้เวลาสแกนของวันนี้',
     'swap.edit.issueHint': 'กรอกเวลาที่ขาดแล้วกดบันทึก',
@@ -340,9 +354,13 @@ export const translations = {
     'swap.savedEdit': 'บันทึกเวลาของ {name} · {date} แล้ว',
     'swap.savedStore':
       'สลับวันหยุดทั้งร้าน: {work} → OFF · {holiday} → เปิดร้าน ({count} คน)',
+    'swap.savedStoreOff': 'กำหนดวันหยุดทั้งร้าน {date} ({count} คน)',
+    'swap.savedStoreWork': 'กำหนดวันทำงานทั้งร้าน {date} ({count} คน)',
     'swap.savedPerson': 'สลับกะของ {name}: {work} ↔ {holiday}',
     'swap.storeHintCount': 'จะสลับให้พนักงานทุกคนในบริษัทนี้ ({count} คน)',
     'swap.historyStore': 'ทั้งร้าน ({count} คน)',
+    'swap.historySetOff': '{date} · วันหยุด',
+    'swap.historySetWork': '{date} · วันทำงาน',
     'swap.personNoIn': 'ขาดเข้า',
     'swap.personNoOut': 'ขาดออก',
     'swap.personNoBoth': 'ขาดเวลา',
@@ -738,6 +756,20 @@ export const translations = {
     'swap.modal.workToOff': 'Work day → Holiday (OFF)',
     'swap.modal.offToWork': 'Holiday → Work day',
     'swap.modal.save': 'Save swap',
+    'swap.modal.modeSwap': 'Swap holiday',
+    'swap.modal.modeSet': 'Set day',
+    'swap.modal.setTitle': 'Set a store-wide day',
+    'swap.modal.setHint':
+      'Sets every employee ({count}) as a work day or a holiday, without pairing another date',
+    'swap.modal.setDate': 'Date',
+    'swap.modal.setDayType': 'This day is',
+    'swap.modal.offExtraHint':
+      'For an extra day off the store gives, with no makeup work day',
+    'swap.modal.workExtraHint':
+      'Opens this day for the whole store, without swapping it from a holiday. Check standard hours to fill anyone still missing punches.',
+    'swap.modal.setAffected':
+      'Sets {date} as {day} for {count} employees',
+    'swap.modal.saveSet': 'Save for store',
     'swap.edit.title': 'Edit in–out times',
     'swap.edit.hint': 'Add or fix punch times for this day',
     'swap.edit.issueHint': 'Fill in the missing time, then save',
@@ -783,10 +815,14 @@ export const translations = {
     'swap.savedEdit': 'Saved times for {name} · {date}',
     'swap.savedStore':
       'Store swap: {work} → OFF · {holiday} → open ({count} people)',
+    'swap.savedStoreOff': 'Store holiday set for {date} ({count} people)',
+    'swap.savedStoreWork': 'Store work day set for {date} ({count} people)',
     'swap.savedPerson': 'Swapped {name}: {work} ↔ {holiday}',
     'swap.storeHintCount':
       'Applies to every employee in this company ({count} people)',
     'swap.historyStore': 'Whole store ({count} people)',
+    'swap.historySetOff': '{date} · holiday',
+    'swap.historySetWork': '{date} · work day',
     'swap.personNoIn': 'Missed in',
     'swap.personNoOut': 'Missed out',
     'swap.personNoBoth': 'No times',
@@ -1171,6 +1207,18 @@ export const translations = {
     'swap.modal.workToOff': '工作日 → 休息（OFF）',
     'swap.modal.offToWork': '休息日 → 上班',
     'swap.modal.save': '保存调班',
+    'swap.modal.modeSwap': '调换休息日',
+    'swap.modal.modeSet': '指定日期',
+    'swap.modal.setTitle': '整店指定日期',
+    'swap.modal.setHint':
+      '将全部员工（{count} 人）设为工作日或休息日，无需配对另一天',
+    'swap.modal.setDate': '日期',
+    'swap.modal.setDayType': '这一天是',
+    'swap.modal.offExtraHint': '例如店铺额外放假，不必补班',
+    'swap.modal.workExtraHint':
+      '整店改为上班，不必从休息日调换。尚无打卡时可勾选使用标准时间',
+    'swap.modal.setAffected': '将 {count} 名员工在 {date} 设为{day}',
+    'swap.modal.saveSet': '保存整店',
     'swap.edit.title': '编辑打卡时间',
     'swap.edit.hint': '补录或修正当天打卡',
     'swap.edit.issueHint': '请补全缺失时间后保存',
@@ -1214,9 +1262,13 @@ export const translations = {
     'swap.savedEdit': '已保存 {name} · {date} 的打卡时间',
     'swap.savedStore':
       '整店调休：{work} → 休息 · {holiday} → 营业（{count} 人）',
+    'swap.savedStoreOff': '已将 {date} 设为整店休息（{count} 人）',
+    'swap.savedStoreWork': '已将 {date} 设为整店上班（{count} 人）',
     'swap.savedPerson': '已调班 {name}：{work} ↔ {holiday}',
     'swap.storeHintCount': '将应用于本公司全部员工（{count} 人）',
     'swap.historyStore': '整店（{count} 人）',
+    'swap.historySetOff': '{date} · 休息',
+    'swap.historySetWork': '{date} · 上班',
     'swap.personNoIn': '缺上班',
     'swap.personNoOut': '缺下班',
     'swap.personNoBoth': '缺时间',
