@@ -72,7 +72,8 @@ export default function Dashboard() {
     ],
     [
       'flow.late',
-      selected.filter((r) => r.status === 'Late').length,
+      selected.filter((r) => Number(r.lateMinutes) > 0 || r.status === 'Late')
+        .length,
       ClockAlert,
       'bg-amber-50 text-amber-700',
     ],

@@ -66,7 +66,8 @@ function computeStats(empRecs) {
     workDays: empRecs.filter((r) =>
       ['Normal', 'Late', 'Holiday-Worked'].includes(r.status),
     ).length,
-    late: empRecs.filter((r) => r.status === 'Late').length,
+    late: empRecs.filter((r) => Number(r.lateMinutes) > 0 || r.status === 'Late')
+      .length,
     lateMinutes: empRecs.reduce((s, r) => s + (r.lateMinutes || 0), 0),
     leave: leavePersonal + leaveSick + leaveVacation,
     leavePersonal,

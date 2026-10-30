@@ -147,9 +147,43 @@ export function deriveStatus({
     return 'Absent'
   }
   if (!hasIn && !hasOut) return 'Absent'
-  if (['late', 'สาย', 'มาสาย'].includes(hint)) return 'Late'
-  if (computeLateMinutes(scheduledIn, actualIn) > 0) return 'Late'
+  // Late is not a status — shown as Normal (ทำงาน) with remark instead
   return 'Normal'
+}
+
+/** Status key for badges / reports: Late folds into Normal (ทำงาน). */
+export function badgeStatus(statusOrRecord, remark) {
+  const resolved = effectiveStatus(statusOrRecord, remark)
+  if (resolved === 'Late') return 'Normal'
+  return resolved
+}
+
+export function isLateRecord(record) {
+  if (!record) return false
+  if (Number(record.lateMinutes) > 0) return true
+  if (record.status === 'Late') return true
+  return false
+}
+
+/** Auto remark text when the employee clocked in late (no minute count). */
+export function lateRemarkLabel(minutes, t) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0))
+  if (m <= 0) return ''
+  if (typeof t === 'function') return t('remark.late')
+  return 'สาย'
+}
+
+export function isAutoLateRemark(remark) {
+  const s = String(remark || '').trim()
+  if (!s) return false
+  return (
+    s === 'สาย' ||
+    /^สาย\s*\d+\s*นาที$/.test(s) ||
+    s === 'Late' ||
+    /^Late\s*\d+\s*min(ute)?s?$/i.test(s) ||
+    s === '迟到' ||
+    /^迟到\s*\d+\s*分钟$/.test(s)
+  )
 }
 
 export function todayISO() {
@@ -307,6 +341,7 @@ export function punchIssueKey(issue) {
   if (issue === 'no-in') return 'punch.noIn'
   if (issue === 'no-out') return 'punch.noOut'
   if (issue === 'no-both') return 'punch.noBoth'
+  if (issue === 'absent') return 'status.Absent'
   return null
 }
 
@@ -318,6 +353,7 @@ export function punchIssueLabel(issue, t) {
   if (issue === 'no-in') return 'ไม่สแกนเข้า'
   if (issue === 'no-out') return 'ไม่สแกนออก'
   if (issue === 'no-both') return 'ไม่มีเวลาเข้า-ออก'
+  if (issue === 'absent') return 'ขาด'
   return ''
 }
 
@@ -390,16 +426,22 @@ export function isAutoLeaveRemark(remark) {
 export function isAutoManagedRemark(remark) {
   const s = String(remark || '').trim()
   if (!s) return true
-  return isAutoPunchRemark(s) || isAutoLeaveRemark(s)
+  return (
+    isAutoPunchRemark(s) || isAutoLeaveRemark(s) || isAutoLateRemark(s)
+  )
 }
 
 /**
- * Sync remark for day type + punch issue.
+ * Sync remark for day type + punch issue + lateness.
  * Leave → ลากิจ / ลาป่วย / ลาพักร้อน
  * Work with missing punch → ไม่สแกน…
+ * Work late → สาย N นาที (status stays ทำงาน)
  * Custom remarks are never overwritten.
  */
-export function syncAttendanceRemark(currentRemark, { dayType, issue } = {}) {
+export function syncAttendanceRemark(
+  currentRemark,
+  { dayType, issue, lateMinutes } = {},
+) {
   const trimmed = String(currentRemark || '').trim()
   if (!isAutoManagedRemark(trimmed)) return trimmed
 
@@ -407,11 +449,38 @@ export function syncAttendanceRemark(currentRemark, { dayType, issue } = {}) {
     return leaveRemarkForDayType(dayType)
   }
 
-  if (dayType === 'work' && issue) {
-    return punchIssueLabel(issue)
+  if (dayType === 'off') return ''
+
+  if (dayType === 'work' || dayType == null) {
+    if (issue) return punchIssueLabel(issue)
+    if (Number(lateMinutes) > 0) return lateRemarkLabel(lateMinutes)
   }
 
   return ''
+}
+
+/** Remark shown in reports: custom/auto note + late if not already in remark. */
+export function attendanceRemarkText(record, t) {
+  if (!record) return ''
+  const issue = punchIssue(record)
+  const issueLabel = issue ? punchIssueLabel(issue, t) : ''
+  const lateLabel =
+    !issue && isLateRecord(record)
+      ? lateRemarkLabel(
+          record.lateMinutes ||
+            computeLateMinutes(record.scheduledIn, record.actualIn),
+          t,
+        )
+      : ''
+  const raw = String(record.remark || '').trim()
+  const parts = []
+  if (raw && raw !== issueLabel && !isAutoLateRemark(raw)) parts.push(raw)
+  else if (raw && isAutoLateRemark(raw) && !lateLabel) parts.push(raw)
+  if (issueLabel) parts.push(issueLabel)
+  if (lateLabel && !parts.some((p) => isAutoLateRemark(p) || p === lateLabel)) {
+    parts.push(lateLabel)
+  }
+  return parts.filter(Boolean).join(' · ')
 }
 
 /** Display-ready times after schedule-aware single-punch fix */

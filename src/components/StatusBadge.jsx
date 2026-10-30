@@ -1,9 +1,8 @@
 import { useI18n } from '../i18n/I18nContext'
-import { effectiveStatus } from '../lib/attendance'
+import { badgeStatus } from '../lib/attendance'
 
 const styles = {
   Normal: 'bg-emerald-100 text-emerald-800',
-  Late: 'bg-amber-100 text-amber-800',
   Absent: 'bg-red-100 text-red-800',
   Holiday: 'bg-slate-100 text-slate-700',
   'Holiday-Worked': 'bg-sky-100 text-sky-800',
@@ -18,7 +17,7 @@ const styles = {
 
 export default function StatusBadge({ status, remark }) {
   const { t } = useI18n()
-  const resolved = effectiveStatus(status, remark)
+  const resolved = badgeStatus(status, remark)
   const label = t(`status.${resolved}`)
   const text = label.startsWith('status.') ? resolved : label
 

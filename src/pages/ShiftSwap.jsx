@@ -19,10 +19,8 @@ import {
 import { useApp } from '../context/AppContext'
 import { useI18n } from '../i18n/I18nContext'
 import StatusBadge from '../components/StatusBadge'
-import TablePager, {
-  DEFAULT_PAGE_SIZE,
-  usePageSlice,
-} from '../components/TablePager'
+import TablePager from '../components/TablePager'
+import { DEFAULT_PAGE_SIZE, usePageSlice } from '../lib/pageSlice'
 import TimeInput24 from '../components/TimeInput24'
 import {
   currentMonthISO,
@@ -75,49 +73,62 @@ function personDayStatus(record, t) {
   if (record.status === 'Holiday-Worked') {
     return { label: 'HW', className: 'bg-sky-100 text-sky-800' }
   }
-  if (record.status === 'Late') {
-    return { label: 'Late', className: 'bg-amber-100 text-amber-800' }
-  }
   if (record.status === 'Absent') {
     return { label: 'Abs', className: 'bg-red-100 text-red-800' }
   }
   return { label: 'Work', className: 'bg-emerald-100 text-emerald-800' }
 }
 
-function storeDayStatus({ work, off, total, swapped, incomplete }, t) {
+function storeDayStatus(
+  { work, off, total, swapped, incomplete, absent = 0 },
+  t,
+) {
   if (total === 0) {
     return { label: '—', className: 'bg-slate-50 text-slate-400', detail: '' }
   }
-  const base = (() => {
-    if (off === total) {
-      return {
-        label: t('swap.storeOff'),
-        className: 'bg-slate-100 text-slate-700',
-        detail: `${off}/${total}`,
-      }
-    }
-    if (work === total) {
-      return {
-        label: t('swap.storeOpen'),
-        className: 'bg-emerald-100 text-emerald-800',
-        detail: `${work}/${total}`,
-      }
-    }
+  const problems = incomplete + absent
+  if (off === total) {
     return {
-      label: t('swap.mixedShort'),
-      className: 'bg-violet-100 text-violet-800',
-      detail: t('swap.workOffDetail', { work, off }),
-      swapped,
-    }
-  })()
-  if (incomplete > 0) {
-    return {
-      ...base,
-      className: `${base.className} ring-1 ring-orange-300`,
-      incomplete,
+      label: t('swap.storeOff'),
+      className: 'bg-slate-100 text-slate-700',
+      detail: `${off}/${total}`,
     }
   }
-  return base
+  // All scheduled as work, everyone present with complete punches → green
+  if (work === total && problems === 0) {
+    return {
+      label: t('swap.storeOpen'),
+      className: 'bg-emerald-100 text-emerald-800',
+      detail: `${work}/${total}`,
+    }
+  }
+  // Same schedule day but someone absent / missing punch → mixed, not solid green
+  if (work === total && problems > 0) {
+    return {
+      label: t('swap.mixedShort'),
+      className: 'bg-amber-100 text-amber-900 ring-1 ring-orange-300',
+      detail:
+        absent > 0
+          ? t('swap.workAbsentDetail', {
+              work: work - absent,
+              absent,
+            })
+          : `${work - incomplete}/${total}`,
+      incomplete,
+      absent,
+    }
+  }
+  return {
+    label: t('swap.mixedShort'),
+    className:
+      problems > 0
+        ? 'bg-violet-100 text-violet-800 ring-1 ring-orange-300'
+        : 'bg-violet-100 text-violet-800',
+    detail: t('swap.workOffDetail', { work, off }),
+    swapped,
+    incomplete,
+    absent,
+  }
 }
 
 export default function ShiftSwap() {
@@ -130,6 +141,7 @@ export default function ShiftSwap() {
     pendingSwaps,
     hasData,
     upsertAttendanceRecord,
+    upsertAttendanceRecords,
     companySettings,
   } = useApp()
   const { t } = useI18n()
@@ -206,15 +218,21 @@ export default function ShiftSwap() {
     return eachDayOfInterval({ start, end })
   }, [month])
 
+  const recordsByEmpDate = useMemo(() => {
+    const map = new Map()
+    records.forEach((r) => {
+      map.set(`${r.employeeId}|${r.date}`, r)
+    })
+    return map
+  }, [records])
+
   const empRecords = useMemo(() => {
     const map = {}
-    records
-      .filter((r) => r.employeeId === employeeId)
-      .forEach((r) => {
-        map[r.date] = r
-      })
+    recordsByEmpDate.forEach((r) => {
+      if (r.employeeId === employeeId) map[r.date] = r
+    })
     return map
-  }, [records, employeeId])
+  }, [recordsByEmpDate, employeeId])
 
   const storeDayMap = useMemo(() => {
     const map = {}
@@ -225,19 +243,22 @@ export default function ShiftSwap() {
       let swapped = 0
       let total = 0
       let incomplete = 0
+      let absent = 0
       const issues = []
 
       filteredEmployees.forEach((emp) => {
-        const rec = records.find(
-          (r) => r.employeeId === emp.id && r.date === key,
-        )
+        const rec = recordsByEmpDate.get(`${emp.id}|${key}`)
         if (!rec) return
         total += 1
         if (rec.isSwapped) swapped += 1
         const issue = punchIssue(rec)
+        const isAbsent = rec.status === 'Absent'
         if (issue) {
           incomplete += 1
           issues.push({ employeeId: emp.id, issue, record: rec })
+        } else if (isAbsent) {
+          absent += 1
+          issues.push({ employeeId: emp.id, issue: 'absent', record: rec })
         }
         if (isOffDayRecord(rec)) {
           off += 1
@@ -246,19 +267,19 @@ export default function ShiftSwap() {
         }
       })
 
-      map[key] = { work, off, total, swapped, incomplete, issues }
+      map[key] = { work, off, total, swapped, incomplete, absent, issues }
     })
     return map
-  }, [days, filteredEmployees, records])
+  }, [days, filteredEmployees, recordsByEmpDate])
 
   const matrix = useMemo(() => {
     const byEmpDate = {}
-    records.forEach((r) => {
+    recordsByEmpDate.forEach((r, key) => {
       if (!r.date.startsWith(month)) return
-      byEmpDate[`${r.employeeId}|${r.date}`] = r
+      byEmpDate[key] = r
     })
     return { byEmpDate }
-  }, [records, month])
+  }, [recordsByEmpDate, month])
 
   function openSwapModal({ scope, date }) {
     setModalScope(scope)
@@ -270,7 +291,7 @@ export default function ShiftSwap() {
   }
 
   function openEditModal({ employeeId: empId, date }) {
-    const rec = records.find((r) => r.employeeId === empId && r.date === date)
+    const rec = recordsByEmpDate.get(`${empId}|${date}`)
     const punches = displayPunches(rec)
     const issue = punchIssue(rec)
     const dayType = dayTypeFromRecord(rec)
@@ -365,10 +386,13 @@ export default function ShiftSwap() {
         : []
     if (!targets.length) return
 
-    targets.forEach((empId) => {
-      const rec = records.find(
-        (r) => r.employeeId === empId && r.date === editDate,
-      )
+    const byKey = new Map()
+    records.forEach((r) => {
+      byKey.set(`${r.employeeId}|${r.date}`, r)
+    })
+
+    const entries = targets.map((empId) => {
+      const rec = byKey.get(`${empId}|${editDate}`)
       const punches = displayPunches(rec)
       const keepIn =
         punches.actualIn && punches.actualIn !== '—' ? punches.actualIn : ''
@@ -393,15 +417,18 @@ export default function ShiftSwap() {
         }
       }
 
-      upsertAttendanceRecord({
+      return {
         employeeId: empId,
         date: editDate,
         actualIn,
         actualOut,
         dayType: editDayType,
         remark: editRemark,
-      })
+      }
     })
+
+    if (entries.length === 1) upsertAttendanceRecord(entries[0])
+    else upsertAttendanceRecords(entries)
 
     setSavedMsg(
       isBulkEdit
@@ -430,7 +457,7 @@ export default function ShiftSwap() {
 
   function openDayIssues(date) {
     const stats = storeDayMap[date]
-    if (stats?.incomplete > 0) {
+    if ((stats?.incomplete || 0) + (stats?.absent || 0) > 0) {
       setDayIssuesDate(date)
       setDayIssuesOpen(true)
       return
@@ -670,8 +697,11 @@ export default function ShiftSwap() {
                   total: 0,
                   swapped: 0,
                   incomplete: 0,
+                  absent: 0,
                 }
                 const st = storeDayStatus(stats, t)
+                const problemCount =
+                  (stats.incomplete || 0) + (stats.absent || 0)
                 return (
                   <button
                     key={key}
@@ -690,10 +720,10 @@ export default function ShiftSwap() {
                         {st.detail}
                       </span>
                     )}
-                    {stats.incomplete > 0 && (
+                    {problemCount > 0 && (
                       <span className="mt-0.5 inline-flex items-center gap-0.5 text-[9px] font-semibold text-orange-700">
                         <AlertTriangle className="h-2.5 w-2.5" />
-                        {t('swap.missingShort')} {stats.incomplete}
+                        {t('swap.missingShort')} {problemCount}
                       </span>
                     )}
                     {stats.swapped > 0 && (
@@ -795,9 +825,6 @@ export default function ShiftSwap() {
             </span>
             <span className="rounded bg-sky-100 px-2 py-0.5 text-sky-800">
               {t('swap.legend.hw')}
-            </span>
-            <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-800">
-              {t('swap.legend.late')}
             </span>
             <span className="rounded bg-orange-100 px-2 py-0.5 text-orange-800">
               {t('swap.legend.missing')}

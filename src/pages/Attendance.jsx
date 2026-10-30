@@ -4,11 +4,9 @@ import { Search, Upload } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useI18n } from '../i18n/I18nContext'
 import StatusBadge from '../components/StatusBadge'
-import TablePager, {
-  DEFAULT_PAGE_SIZE,
-  usePageSlice,
-} from '../components/TablePager'
-import { displayPunches } from '../lib/attendance'
+import TablePager from '../components/TablePager'
+import { DEFAULT_PAGE_SIZE, usePageSlice } from '../lib/pageSlice'
+import { attendanceRemarkText, displayPunches } from '../lib/attendance'
 
 function formatMonthLabel(ym, locale) {
   const [y, m] = ym.split('-').map(Number)
@@ -85,7 +83,11 @@ export default function Attendance() {
           r.employeeId.toLowerCase().includes(query.toLowerCase())
         const statusMatch =
           status === 'all' ||
-          (status === 'Swapped' ? r.isSwapped : r.status === status)
+          (status === 'Swapped'
+            ? r.isSwapped
+            : status === 'Normal'
+              ? r.status === 'Normal' || r.status === 'Late'
+              : r.status === status)
         const fromMatch = !dateFrom || r.date >= dateFrom
         const toMatch = !dateTo || r.date <= dateTo
         return nameMatch && statusMatch && fromMatch && toMatch
@@ -173,18 +175,17 @@ export default function Attendance() {
               >
                 <option value="all">{t('common.all')}</option>
                 <option value="Normal">{t('status.Normal')}</option>
-                <option value="Late">{t('status.Late')}</option>
-                <option value="Absent">{t('status.Absent')}</option>
                 <option value="Holiday">{t('status.Holiday')}</option>
-                <option value="Holiday-Worked">
-                  {t('status.Holiday-Worked')}
-                </option>
                 <option value="Leave-Personal">
                   {t('swap.leave.personal')}
                 </option>
                 <option value="Leave-Sick">{t('swap.leave.sick')}</option>
                 <option value="Leave-Vacation">
                   {t('swap.leave.vacation')}
+                </option>
+                <option value="Absent">{t('status.Absent')}</option>
+                <option value="Holiday-Worked">
+                  {t('status.Holiday-Worked')}
                 </option>
                 <option value="Swapped">{t('status.Swapped')}</option>
               </select>
@@ -250,6 +251,9 @@ export default function Attendance() {
                     <th className="px-4 py-3 font-medium">
                       {t('att.col.status')}
                     </th>
+                    <th className="px-4 py-3 font-medium">
+                      {t('common.remark')}
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -259,6 +263,7 @@ export default function Attendance() {
                     const displayName = emp?.name || r.employeeId
                     const showId =
                       r.employeeId && r.employeeId !== displayName
+                    const note = attendanceRemarkText(r, t)
                     return (
                       <tr key={r.id} className="hover:bg-slate-50/80">
                         <td className="px-4 py-3">
@@ -302,13 +307,16 @@ export default function Attendance() {
                             {r.isSwapped && <StatusBadge status="Swapped" />}
                           </div>
                         </td>
+                        <td className="max-w-[160px] px-4 py-3 text-xs text-slate-500">
+                          {note || '—'}
+                        </td>
                       </tr>
                     )
                   })}
                   {filtered.length === 0 && (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={7}
                         className="px-4 py-10 text-center text-slate-400"
                       >
                         {t('att.noMatch')}

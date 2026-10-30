@@ -21,12 +21,19 @@ import { fetchWorkspace, saveWorkspace } from '../lib/api'
 import { parseHiptimeFile } from '../lib/parseHiptime'
 import {
   applyRoutineToRecords,
+  classifyByRoutine,
   enforceKitchenWeeklyShifts,
   normalizeSettings,
 } from '../lib/shiftRoutine'
 
 import { writeStoreDay } from '../lib/storeDay'
-import { planImport, withHistory, undoHistory } from '../lib/workflow'
+import {
+  dedupeRecords,
+  planImport,
+  undoHistory,
+  withHistory,
+  writeRecord,
+} from '../lib/workflow'
 
 const AppContext = createContext(null)
 
@@ -191,7 +198,7 @@ export function AppProvider({ children }) {
       presentToday: todayRecords.filter((r) =>
         ['Normal', 'Late', 'Holiday-Worked'].includes(r.status),
       ).length,
-      lateToday: todayRecords.filter((r) => r.status === 'Late').length,
+      lateToday: todayRecords.filter((r) => Number(r.lateMinutes) > 0).length,
       pendingSwaps: swapHistory.filter((s) => s.status === 'Pending').length,
       swappedShifts: records.filter((r) => r.isSwapped).length,
       totalRecords: records.length,
@@ -632,7 +639,8 @@ export function AppProvider({ children }) {
   /**
    * Store-wide day assignment without a paired swap.
    * dayType: 'work' | 'off'
-   * useStandard: fill missing punches with company standard hours (work only)
+   * useStandard: also replace punch in/out with company standard hours (work only).
+   * Schedule hours are always replaced with company standard on work days.
    */
   function setStoreDay({ date, dayType, useStandard = false }) {
     if (!activeCompanyId || !date) return
@@ -643,18 +651,22 @@ export function AppProvider({ children }) {
       if (!targets.length) return company
 
       const cfg = normalizeSettings(company.settings)
-      const next = [...company.records]
+      const next = dedupeRecords(company.records || [])
       let seq = Math.max(0, ...next.map((r) => Number(r.id) || 0), 0)
       const nextId = () => {
         seq += 1
         return seq
       }
 
+      const empById = new Map(
+        (company.employees || []).map((e) => [e.id, e]),
+      )
       targets.forEach((id) => {
         writeStoreDay(next, id, date, dayType, {
           cfg,
           useStandard: dayType === 'work' && useStandard,
           nextId,
+          department: empById.get(id)?.department,
         })
       })
 
@@ -684,20 +696,18 @@ export function AppProvider({ children }) {
     })
   }
 
-  /**
-   * Create or update one attendance cell (employee + date).
-   * dayType: 'work' | 'off'
-   */
-  function upsertAttendanceRecord({
+  function buildAttendanceRecord({
+    company,
+    existing,
     employeeId,
     date,
     actualIn,
     actualOut,
     dayType = 'work',
     remark,
+    nextId,
   }) {
-    if (!activeCompanyId || !employeeId || !date) return
-
+    const cfg = normalizeSettings(company.settings)
     const inTime = actualIn ? formatTime(actualIn) : '—'
     const outTime = actualOut ? formatTime(actualOut) : '—'
     const normalizedIn =
@@ -705,29 +715,61 @@ export function AppProvider({ children }) {
     const normalizedOut =
       !actualOut || outTime === '—' || outTime === 'OFF' ? '—' : outTime
 
-    patchActiveCompany((company) => {
-      const cfg = normalizeSettings(company.settings)
-      const next = [...company.records]
-      const idx = next.findIndex(
-        (r) => r.employeeId === employeeId && r.date === date,
-      )
-      const existing = idx >= 0 ? next[idx] : null
+    const leaveStatus = statusForDayType(dayType)
+    const isLeave = Boolean(leaveStatus)
+    const isOff = dayType === 'off' || isLeave
+    const department = (company.employees || []).find(
+      (e) => e.id === employeeId,
+    )?.department
 
-      const leaveStatus = statusForDayType(dayType)
-      const isLeave = Boolean(leaveStatus)
-      const isOff = dayType === 'off' || isLeave
+    let scheduledIn
+    let scheduledOut
+    let punchIn = normalizedIn
+    let punchOut = normalizedOut
+    let status
+    let lateMinutes = 0
+    let otHours = 0
+    let scheduleSource = 'manual'
+    let shiftLabel
+    let shiftId
 
-      let scheduledIn
-      let scheduledOut
-      let punchIn = normalizedIn
-      let punchOut = normalizedOut
+    if (isOff) {
+      scheduledIn = 'OFF'
+      scheduledOut = 'OFF'
+      punchIn = '—'
+      punchOut = '—'
+      status = isLeave
+        ? leaveStatus
+        : deriveStatus({
+            scheduledIn: 'OFF',
+            actualIn: punchIn,
+            actualOut: punchOut,
+            statusHint: 'Holiday',
+          })
+    } else {
+      const punched = punchIn !== '—' || punchOut !== '—'
+      const canInfer =
+        punched &&
+        cfg.inferShiftFromPunch &&
+        cfg.shiftTemplates.length > 0
 
-      if (isOff) {
-        scheduledIn = 'OFF'
-        scheduledOut = 'OFF'
-        // Holiday / leave — no punch expected
-        punchIn = '—'
-        punchOut = '—'
+      if (canInfer) {
+        // Match กะเช้า/กะสาย from punches — don't stick to standard 08:00–19:00
+        const classified = classifyByRoutine({
+          date,
+          actualIn: punchIn,
+          actualOut: punchOut,
+          settings: cfg,
+          department,
+        })
+        scheduledIn = classified.scheduledIn
+        scheduledOut = classified.scheduledOut
+        status = classified.status
+        lateMinutes = classified.lateMinutes
+        otHours = classified.otHours
+        scheduleSource = classified.scheduleSource || 'inferred'
+        shiftLabel = classified.shiftLabel || undefined
+        shiftId = classified.shiftId || undefined
       } else if (
         existing?.scheduledIn &&
         existing.scheduledIn !== 'OFF' &&
@@ -738,64 +780,104 @@ export function AppProvider({ children }) {
           existing.scheduledOut && existing.scheduledOut !== 'OFF'
             ? existing.scheduledOut
             : cfg.standardOut
+        status = deriveStatus({
+          scheduledIn,
+          actualIn: punchIn,
+          actualOut: punchOut,
+        })
+        lateMinutes = computeLateMinutes(scheduledIn, punchIn)
+        otHours = computeOtHours(scheduledOut, punchOut)
       } else {
         scheduledIn = cfg.standardIn
         scheduledOut = cfg.standardOut
+        status = deriveStatus({
+          scheduledIn,
+          actualIn: punchIn,
+          actualOut: punchOut,
+        })
+        lateMinutes = computeLateMinutes(scheduledIn, punchIn)
+        otHours = computeOtHours(scheduledOut, punchOut)
       }
+    }
 
-      const status = isLeave
-        ? leaveStatus
-        : deriveStatus({
-            scheduledIn,
-            actualIn: punchIn,
-            actualOut: punchOut,
-            statusHint: dayType === 'off' ? 'Holiday' : null,
-          })
+    const incomingRemark =
+      remark !== undefined ? remark || '' : existing?.remark || ''
+    const draft = {
+      scheduledIn,
+      scheduledOut,
+      actualIn: punchIn,
+      actualOut: punchOut,
+      status,
+    }
+    const syncedRemark = syncAttendanceRemark(incomingRemark, {
+      dayType,
+      issue: punchIssue(draft),
+      lateMinutes,
+    })
 
-      const lateMinutes =
-        scheduledIn === 'OFF' ? 0 : computeLateMinutes(scheduledIn, punchIn)
-      const otHours =
-        scheduledOut === 'OFF' ? 0 : computeOtHours(scheduledOut, punchOut)
+    return {
+      id: existing?.id ?? nextId(),
+      employeeId,
+      date,
+      scheduledIn,
+      scheduledOut,
+      actualIn: punchIn,
+      actualOut: punchOut,
+      status,
+      isSwapped: existing?.isSwapped || false,
+      lateMinutes,
+      otHours,
+      scheduleSource,
+      shiftLabel,
+      shiftId,
+      leaveType: isLeave ? dayType : undefined,
+      remark: syncedRemark || undefined,
+    }
+  }
 
-      const incomingRemark =
-        remark !== undefined ? remark || '' : existing?.remark || ''
-      const draft = {
-        scheduledIn,
-        scheduledOut,
-        actualIn: punchIn,
-        actualOut: punchOut,
-        status,
+  /**
+   * Create or update one attendance cell (employee + date).
+   * dayType: 'work' | 'off' | leave-*
+   */
+  function upsertAttendanceRecord(entry) {
+    if (!activeCompanyId || !entry?.employeeId || !entry?.date) return
+    upsertAttendanceRecords([entry])
+  }
+
+  /** Batch create/update many attendance cells in one state write. */
+  function upsertAttendanceRecords(entries) {
+    if (!activeCompanyId || !entries?.length) return
+
+    patchActiveCompany((company) => {
+      const next = dedupeRecords(company.records || [])
+      let seq = Math.max(0, ...next.map((r) => Number(r.id) || 0), 0)
+      const nextId = () => {
+        seq += 1
+        return seq
       }
-      const syncedRemark = syncAttendanceRemark(incomingRemark, {
-        dayType,
-        issue: punchIssue(draft),
-      })
+      const byKey = new Map(next.map((r) => [`${r.employeeId}|${r.date}`, r]))
 
-      const record = {
-        id: existing?.id ?? Math.max(0, ...next.map((r) => r.id), 0) + 1,
-        employeeId,
-        date,
-        scheduledIn,
-        scheduledOut,
-        actualIn: punchIn,
-        actualOut: punchOut,
-        status,
-        isSwapped: existing?.isSwapped || false,
-        lateMinutes,
-        otHours,
-        scheduleSource: 'manual',
-        leaveType: isLeave ? dayType : undefined,
-        remark: syncedRemark || undefined,
+      for (const entry of entries) {
+        if (!entry?.employeeId || !entry?.date) continue
+        const key = `${entry.employeeId}|${entry.date}`
+        const existing = byKey.get(key) || null
+        const record = buildAttendanceRecord({
+          company,
+          existing,
+          ...entry,
+          nextId,
+        })
+        writeRecord(next, record)
+        byKey.set(key, record)
       }
-
-      if (idx >= 0) next[idx] = record
-      else next.push(record)
 
       return withHistory(
         company,
         { ...company, records: next },
         'edit',
-        `${employeeId} · ${date}`,
+        entries.length === 1
+          ? `${entries[0].employeeId} · ${entries[0].date}`
+          : `${entries.length} คน · ${entries[0].date}`,
       )
     })
   }
@@ -918,7 +1000,7 @@ export function AppProvider({ children }) {
       scope === 'month' && payload.months.length
         ? `_${payload.months.join('-')}`
         : '_all'
-    const filename = `TimeSwap_backup_${safeName}${monthPart}_${stamp}.json`
+    const filename = `${safeName}_backup${monthPart}_${stamp}.json`
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: 'application/json;charset=utf-8',
@@ -1096,6 +1178,7 @@ export function AppProvider({ children }) {
     swapShift,
     setStoreDay,
     upsertAttendanceRecord,
+    upsertAttendanceRecords,
     updateCompanySettings,
     downloadBackup,
     restoreBackup,

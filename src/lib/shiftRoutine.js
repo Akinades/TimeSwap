@@ -1,10 +1,12 @@
-import { shiftRules } from '../config'
+import { shiftRules } from '../config.js'
 import {
   computeLateMinutes,
   computeOtHours,
   deriveStatus,
+  punchIssue,
+  syncAttendanceRemark,
   timeToMinutes,
-} from './attendance'
+} from './attendance.js'
 
 /** JS Date.getDay(): 0=Sun … 6=Sat */
 export const WEEKDAY_KEYS = [1, 2, 3, 4, 5, 6, 0] // Mon→Sun display order
@@ -189,9 +191,11 @@ export function resolveSchedule(settings, department) {
 }
 
 /**
- * Pick shift by clock-in first (midpoint between start times).
- * Clock-out only breaks ties among the same start (เช้า 08–18 vs ปกติ 08–19).
- * Late checkout / OT must not flip กะเช้า → กะสาย.
+ * Pick shift by clock-in + clock-out fit.
+ * Score = |in−start| + |out−end| + lateMinutes (late for a start costs extra),
+ * so in 08:12 / out 19:01 → กะสาย 08:30–19:00 (on time + end match),
+ * not กะเช้า 08:00–18:00 or กะปกติ 08:00–19:00 (ทั้งคู่สายเข้า).
+ * Missing punch side uses the other side only.
  */
 export function matchShiftFromPunch(templates, actualIn, actualOut) {
   const list = normalizeShiftTemplates(templates)
@@ -203,50 +207,40 @@ export function matchShiftFromPunch(templates, actualIn, actualOut) {
   if (inMin == null && outMin == null) return null
   if (list.length === 1) return list[0]
 
-  const uniqueStarts = [
-    ...new Set(
-      list.map((t) => timeToMinutes(t.in)).filter((x) => x != null),
-    ),
-  ].sort((a, b) => a - b)
-
-  let candidates = list
-
-  if (inMin != null && uniqueStarts.length >= 1) {
-    let chosenStart = uniqueStarts[0]
-    for (let i = 0; i < uniqueStarts.length - 1; i += 1) {
-      const mid = (uniqueStarts[i] + uniqueStarts[i + 1]) / 2
-      if (inMin >= mid) chosenStart = uniqueStarts[i + 1]
-    }
-    const atStart = list.filter((t) => timeToMinutes(t.in) === chosenStart)
-    if (atStart.length) candidates = atStart
-  }
-
   let best = null
   let bestScore = Infinity
 
-  for (const tpl of candidates) {
+  for (const tpl of list) {
     const sIn = timeToMinutes(tpl.in)
     const sOut = timeToMinutes(tpl.out)
-    let score
-    if (outMin != null && sOut != null) {
-      score = Math.abs(outMin - sOut)
-    } else if (inMin != null && sIn != null) {
-      score = Math.abs(inMin - sIn)
-    } else {
-      continue
+    let score = 0
+    let parts = 0
+    if (inMin != null && sIn != null) {
+      const deltaIn = Math.abs(inMin - sIn)
+      const late = Math.max(0, inMin - sIn)
+      score += deltaIn + late
+      parts += 1
     }
+    if (outMin != null && sOut != null) {
+      score += Math.abs(outMin - sOut)
+      parts += 1
+    }
+    if (!parts) continue
+    // Tie-break: earlier start, then earlier end (เช้า before ปกติ / สาย)
     if (
       score < bestScore ||
       (score === bestScore &&
-        sOut != null &&
         best &&
-        sOut < timeToMinutes(best.out))
+        ((sIn != null && sIn < timeToMinutes(best.in)) ||
+          (sIn === timeToMinutes(best.in) &&
+            sOut != null &&
+            sOut < timeToMinutes(best.out))))
     ) {
       bestScore = score
       best = tpl
     }
   }
-  return best || candidates[0] || list[0]
+  return best || list[0]
 }
 
 export function isKitchenDepartment(dept) {
@@ -367,21 +361,31 @@ export function enforceKitchenWeeklyShifts(records, settings, employees = []) {
 
     for (const i of idxs) {
       const r = next[i]
-      // Keep empty no-punch days as-is if already Absent with schedule — still unify schedule
-      next[i] = {
+      const lateMinutes = computeLateMinutes(tpl.in, r.actualIn)
+      const status = deriveStatus({
+        scheduledIn: tpl.in,
+        actualIn: r.actualIn,
+        actualOut: r.actualOut,
+      })
+      const draft = {
         ...r,
         scheduledIn: tpl.in,
         scheduledOut: tpl.out,
+        status,
+        lateMinutes,
+      }
+      next[i] = {
+        ...draft,
         shiftLabel: tpl.name,
         shiftId: tpl.id,
         scheduleSource: 'inferred',
-        lateMinutes: computeLateMinutes(tpl.in, r.actualIn),
         otHours: computeOtHours(tpl.out, r.actualOut),
-        status: deriveStatus({
-          scheduledIn: tpl.in,
-          actualIn: r.actualIn,
-          actualOut: r.actualOut,
-        }),
+        remark:
+          syncAttendanceRemark(r.remark, {
+            dayType: 'work',
+            issue: punchIssue(draft),
+            lateMinutes,
+          }) || undefined,
       }
     }
   }
@@ -491,9 +495,23 @@ export function classifyByRoutine({
   }
 }
 
-/** Soft / punch-only rows that can be reclassified by routine */
-export function isRoutineEligible(record) {
+/**
+ * Soft rows that can be reclassified by routine / shift templates.
+ * Swaps stay locked. Rows with punches rematch when infer + templates are on
+ * (including table edits / import that stuck on standard 08:00–19:00).
+ */
+export function isRoutineEligible(record, settings) {
   if (!record || record.isSwapped) return false
+
+  const cfg = settings ? normalizeSettings(settings) : null
+  const canInferPunch =
+    Boolean(cfg?.inferShiftFromPunch) &&
+    (cfg?.shiftTemplates.length || 0) > 0 &&
+    hasPunchTimes(record.actualIn, record.actualOut)
+
+  // Manual OFF / empty days stay locked; punched days still rematch to templates
+  if (record.scheduleSource === 'manual' && !canInferPunch) return false
+
   if (
     record.scheduleSource === 'routine' ||
     record.scheduleSource === 'inferred' ||
@@ -506,11 +524,11 @@ export function isRoutineEligible(record) {
   if (
     record.scheduledIn === 'OFF' &&
     record.scheduledOut === 'OFF' &&
-    record.scheduleSource !== 'import' &&
-    record.scheduleSource !== 'manual'
+    record.scheduleSource !== 'import'
   ) {
     return true
   }
+  if (canInferPunch) return true
   return false
 }
 
@@ -518,7 +536,7 @@ export function applyRoutineToRecords(records, settings, employees = []) {
   const cfg = normalizeSettings(settings)
   const empById = new Map((employees || []).map((e) => [e.id, e]))
   const classified = (records || []).map((r) => {
-    if (!isRoutineEligible(r)) return r
+    if (!isRoutineEligible(r, cfg)) return r
     const department = empById.get(r.employeeId)?.department
     const next = classifyByRoutine({
       date: r.date,
@@ -527,16 +545,35 @@ export function applyRoutineToRecords(records, settings, employees = []) {
       settings: cfg,
       department,
     })
-    return {
+    const draft = {
       ...r,
       scheduledIn: next.scheduledIn,
       scheduledOut: next.scheduledOut,
       status: next.status,
       lateMinutes: next.lateMinutes,
       otHours: next.otHours,
+    }
+    const dayType =
+      next.status === 'Leave-Personal'
+        ? 'leave-personal'
+        : next.status === 'Leave-Sick'
+          ? 'leave-sick'
+          : next.status === 'Leave-Vacation'
+            ? 'leave-vacation'
+            : next.scheduledIn === 'OFF'
+              ? 'off'
+              : 'work'
+    const syncedRemark = syncAttendanceRemark(r.remark, {
+      dayType,
+      issue: punchIssue(draft),
+      lateMinutes: next.lateMinutes,
+    })
+    return {
+      ...draft,
       scheduleSource: next.scheduleSource,
       shiftLabel: next.shiftLabel || undefined,
       shiftId: next.shiftId || undefined,
+      remark: syncedRemark || undefined,
     }
   })
   return enforceKitchenWeeklyShifts(classified, cfg, employees)

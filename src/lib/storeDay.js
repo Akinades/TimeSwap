@@ -6,86 +6,103 @@ import {
   punchIssue,
   syncAttendanceRemark,
 } from './attendance.js'
+import { classifyByRoutine, normalizeSettings } from './shiftRoutine.js'
+import { writeRecord } from './workflow.js'
 
 /**
  * Set one date as a work day or holiday for a single employee.
  * Mutates `records`. Used when the store adds a holiday or opens a day
  * without pairing it with another date.
+ *
+ * Work day always applies company standard schedule (replaces prior hours).
+ * When `useStandard` is true, punch in/out are also replaced with those hours.
  */
 export function writeStoreDay(
   records,
   employeeId,
   date,
   dayType,
-  { cfg, useStandard, nextId },
+  { cfg, useStandard, nextId, department },
 ) {
-  const idx = records.findIndex(
-    (r) => r.employeeId === employeeId && r.date === date,
-  )
-  const existing = idx >= 0 ? records[idx] : null
+  const settings = normalizeSettings(cfg)
+  const existing =
+    [...records]
+      .reverse()
+      .find((r) => r.employeeId === employeeId && r.date === date) || null
   const isOff = dayType === 'off'
 
   let scheduledIn
   let scheduledOut
   let punchIn
   let punchOut
+  let status
+  let lateMinutes = 0
+  let otHours = 0
+  let scheduleSource = 'manual'
+  let shiftLabel
+  let shiftId
 
   if (isOff) {
     scheduledIn = 'OFF'
     scheduledOut = 'OFF'
     punchIn = '—'
     punchOut = '—'
+    status = 'Holiday'
   } else {
-    scheduledIn =
-      existing?.scheduledIn &&
-      existing.scheduledIn !== 'OFF' &&
-      existing.scheduledIn !== '—'
-        ? existing.scheduledIn
-        : cfg.standardIn
-    scheduledOut =
-      existing?.scheduledOut &&
-      existing.scheduledOut !== 'OFF' &&
-      existing.scheduledOut !== '—'
-        ? existing.scheduledOut
-        : cfg.standardOut
-
-    const keptIn =
-      existing?.actualIn &&
-      existing.actualIn !== '—' &&
-      existing.actualIn !== 'OFF'
-        ? formatTime(existing.actualIn)
-        : ''
-    const keptOut =
-      existing?.actualOut &&
-      existing.actualOut !== '—' &&
-      existing.actualOut !== 'OFF'
-        ? formatTime(existing.actualOut)
-        : ''
-    const inTime =
-      keptIn && keptIn !== '—' && keptIn !== 'OFF'
-        ? keptIn
-        : useStandard
-          ? cfg.standardIn
+    if (useStandard) {
+      punchIn = formatTime(settings.standardIn)
+      punchOut = formatTime(settings.standardOut)
+    } else {
+      const keptIn =
+        existing?.actualIn &&
+        existing.actualIn !== '—' &&
+        existing.actualIn !== 'OFF'
+          ? formatTime(existing.actualIn)
           : ''
-    const outTime =
-      keptOut && keptOut !== '—' && keptOut !== 'OFF'
-        ? keptOut
-        : useStandard
-          ? cfg.standardOut
+      const keptOut =
+        existing?.actualOut &&
+        existing.actualOut !== '—' &&
+        existing.actualOut !== 'OFF'
+          ? formatTime(existing.actualOut)
           : ''
-    punchIn = inTime ? formatTime(inTime) : '—'
-    punchOut = outTime ? formatTime(outTime) : '—'
-    if (punchIn === 'OFF') punchIn = '—'
-    if (punchOut === 'OFF') punchOut = '—'
-  }
+      punchIn = keptIn && keptIn !== '—' && keptIn !== 'OFF' ? keptIn : '—'
+      punchOut = keptOut && keptOut !== '—' && keptOut !== 'OFF' ? keptOut : '—'
+    }
 
-  const status = isOff
-    ? 'Holiday'
-    : deriveStatus({
+    const punched = punchIn !== '—' || punchOut !== '—'
+    const canInfer =
+      punched &&
+      settings.inferShiftFromPunch &&
+      settings.shiftTemplates.length > 0
+
+    if (canInfer) {
+      const classified = classifyByRoutine({
+        date,
+        actualIn: punchIn,
+        actualOut: punchOut,
+        settings,
+        department,
+      })
+      scheduledIn = classified.scheduledIn
+      scheduledOut = classified.scheduledOut
+      status = classified.status
+      lateMinutes = classified.lateMinutes
+      otHours = classified.otHours
+      scheduleSource = classified.scheduleSource || 'inferred'
+      shiftLabel = classified.shiftLabel || undefined
+      shiftId = classified.shiftId || undefined
+    } else {
+      scheduledIn = formatTime(settings.standardIn)
+      scheduledOut = formatTime(settings.standardOut)
+      status = deriveStatus({
         scheduledIn,
         actualIn: punchIn,
         actualOut: punchOut,
       })
+      lateMinutes = computeLateMinutes(scheduledIn, punchIn)
+      otHours = computeOtHours(scheduledOut, punchOut)
+    }
+  }
 
   const draft = {
     scheduledIn,
@@ -97,6 +114,7 @@ export function writeStoreDay(
   const syncedRemark = syncAttendanceRemark(existing?.remark || '', {
     dayType,
     issue: punchIssue(draft),
+    lateMinutes,
   })
 
   const record = {
@@ -109,15 +127,14 @@ export function writeStoreDay(
     actualOut: punchOut,
     status,
     isSwapped: false,
-    lateMinutes:
-      scheduledIn === 'OFF' ? 0 : computeLateMinutes(scheduledIn, punchIn),
-    otHours:
-      scheduledOut === 'OFF' ? 0 : computeOtHours(scheduledOut, punchOut),
-    scheduleSource: 'manual',
+    lateMinutes,
+    otHours,
+    scheduleSource,
+    shiftLabel,
+    shiftId,
     remark: syncedRemark || undefined,
   }
 
-  if (idx >= 0) records[idx] = record
-  else records.push(record)
+  writeRecord(records, record)
   return record
 }

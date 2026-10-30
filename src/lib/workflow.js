@@ -8,6 +8,29 @@ export const recordKey = (r) => `${r.employeeId}|${r.date}`
 const equal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 /**
+ * Keep a single row per employee|date (last write wins).
+ * Prevents store-wide edits updating one copy while person view reads another.
+ */
+export function dedupeRecords(records) {
+  const map = new Map()
+  for (const r of records || []) {
+    if (!r?.employeeId || !r?.date) continue
+    map.set(recordKey(r), r)
+  }
+  return [...map.values()]
+}
+
+/** Replace all rows for employee|date with one record. Mutates and returns `records`. */
+export function writeRecord(records, record) {
+  const key = recordKey(record)
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    if (recordKey(records[i]) === key) records.splice(i, 1)
+  }
+  records.push(record)
+  return records
+}
+
+/**
  * Map an imported employee onto an existing one when the ID differs
  * but the person is the same (name match, or numeric ID with leading zeros).
  */

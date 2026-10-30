@@ -7,7 +7,9 @@ import {
   deriveStatus,
   detectLeaveStatus,
   formatTime,
-} from './attendance'
+  punchIssue,
+  syncAttendanceRemark,
+} from './attendance.js'
 import {
   normalizeEmployeeId,
   normalizePersonName,
@@ -623,6 +625,28 @@ export async function parseHiptimeFile(file, options = {}) {
         actualOut,
         statusHint: 'Holiday',
       })
+    } else if (
+      hasScheduleColumns &&
+      hasPunch &&
+      settings.inferShiftFromPunch !== false &&
+      (settings.shiftTemplates || []).length > 0
+    ) {
+      // Prefer punch→template match over file schedule (e.g. 08:00–19:00 vs กะสาย)
+      const classified = classifyByRoutine({
+        date,
+        actualIn,
+        actualOut,
+        settings,
+        department,
+      })
+      scheduledIn = classified.scheduledIn
+      scheduledOut = classified.scheduledOut
+      finalStatus = classified.status
+      lateMinutes = classified.lateMinutes
+      otHours = classified.otHours
+      scheduleSource = classified.scheduleSource || 'inferred'
+      shiftLabel = classified.shiftLabel || undefined
+      shiftId = classified.shiftId || undefined
     } else if (hasScheduleColumns) {
       scheduledIn = scheduledIn || settings.standardIn || shiftRules.standardIn
       scheduledOut =
@@ -646,6 +670,35 @@ export async function parseHiptimeFile(file, options = {}) {
       finalStatus = 'Holiday'
     }
 
+    if (!lateMinutes && scheduledIn !== 'OFF') {
+      lateMinutes = computeLateMinutes(scheduledIn, actualIn)
+    }
+
+    const draft = {
+      scheduledIn,
+      scheduledOut,
+      actualIn,
+      actualOut,
+      status: finalStatus,
+      lateMinutes,
+    }
+    const dayType = leaveFromText
+      ? leaveFromText === 'Leave-Personal'
+        ? 'leave-personal'
+        : leaveFromText === 'Leave-Sick'
+          ? 'leave-sick'
+          : leaveFromText === 'Leave-Vacation'
+            ? 'leave-vacation'
+            : 'work'
+      : isHolidayDay || scheduledIn === 'OFF'
+        ? 'off'
+        : 'work'
+    const syncedRemark = syncAttendanceRemark(remark, {
+      dayType,
+      issue: punchIssue(draft),
+      lateMinutes,
+    })
+
     records.push({
       id: index + 1,
       employeeId,
@@ -667,7 +720,7 @@ export async function parseHiptimeFile(file, options = {}) {
       scheduleSource,
       shiftLabel,
       shiftId,
-      remark: remark || undefined,
+      remark: syncedRemark || undefined,
     })
   })
 

@@ -14,16 +14,15 @@ import { useApp } from '../context/AppContext'
 import { useI18n } from '../i18n/I18nContext'
 import StatusBadge from '../components/StatusBadge'
 import EmployeeMultiSelect from '../components/EmployeeMultiSelect'
-import TablePager, {
-  DEFAULT_PAGE_SIZE,
-  usePageSlice,
-} from '../components/TablePager'
+import TablePager from '../components/TablePager'
+import { DEFAULT_PAGE_SIZE, usePageSlice } from '../lib/pageSlice'
 import {
+  attendanceRemarkText,
+  badgeStatus,
   currentMonthISO,
   displayPunches,
-  effectiveStatus,
+  isLateRecord,
   punchIssue,
-  punchIssueLabel,
 } from '../lib/attendance'
 
 function formatMonthLabel(ym, locale) {
@@ -46,6 +45,15 @@ function formatMonthRange(ym) {
   const last = new Date(y, m, 0).getDate()
   const pad = (n) => String(n).padStart(2, '0')
   return `${y}-${pad(m)}-01 – ${y}-${pad(m)}-${pad(last)}`
+}
+
+function safeFileStem(name, fallback = 'company') {
+  const stem = String(name || '')
+    .trim()
+    .replace(/[^\w\u0E00-\u0E7F\-]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40)
+  return stem || fallback
 }
 
 function downloadExcel(filename, sheetName, rows) {
@@ -227,30 +235,18 @@ export default function Summary() {
         const workDays = empRecs.filter((r) =>
           ['Normal', 'Late', 'Holiday-Worked'].includes(r.status),
         ).length
-        const lateCount = empRecs.filter((r) => r.status === 'Late').length
-        const lateMinutes = empRecs.reduce(
-          (sum, r) => sum + (r.lateMinutes || 0),
-          0,
-        )
+        const lateCount = empRecs.filter((r) => isLateRecord(r)).length
         const otHours = empRecs.reduce((sum, r) => sum + (r.otHours || 0), 0)
-        const absent = empRecs.filter((r) => r.status === 'Absent').length
-        const holiday = empRecs.filter(
-          (r) =>
-            r.status === 'Holiday' ||
-            r.scheduledIn === 'OFF' ||
-            String(r.status || '').startsWith('Leave-'),
+        const leaveDays = empRecs.filter((r) =>
+          String(r.status || '').startsWith('Leave-'),
         ).length
-        const incomplete = empRecs.filter((r) => punchIssue(r)).length
         const swapped = empRecs.filter((r) => r.isSwapped).length
         return {
           ...emp,
           workDays,
           lateCount,
-          lateMinutes,
           otHours: Math.round(otHours * 100) / 100,
-          absent,
-          holiday,
-          incomplete,
+          leaveDays,
           swapped,
           remark: summaryNotes?.[emp.id]?.[month] || '',
         }
@@ -401,18 +397,11 @@ export default function Summary() {
     const rows = filteredMonthRecords.map((r) => {
       const emp = employeeMap[r.employeeId]
       const name = emp?.name || r.employeeId
-      const resolved = effectiveStatus(r)
+      const resolved = badgeStatus(r)
       const statusLabel = t(`status.${resolved}`)
       const status = [
         statusLabel.startsWith('status.') ? resolved : statusLabel,
         r.isSwapped ? t('status.Swapped') : '',
-      ]
-        .filter(Boolean)
-        .join(' · ')
-      const issueLabel = r.issue ? punchIssueLabel(r.issue, t) : ''
-      const note = [
-        r.remark && r.remark !== issueLabel ? r.remark : '',
-        issueLabel,
       ]
         .filter(Boolean)
         .join(' · ')
@@ -424,11 +413,11 @@ export default function Summary() {
         r.displayIn,
         r.displayOut,
         status,
-        note,
+        attendanceRemarkText(r, t) || '',
       ]
     })
     downloadExcel(
-      `TimeSwap_Attendance_${month}.xlsx`,
+      `${safeFileStem(companyName)}_Attendance_${month}.xlsx`,
       t('report.attendance'),
       [header, ...rows],
     )
@@ -441,12 +430,9 @@ export default function Summary() {
       t('report.col.employee'),
       t('report.col.dept'),
       t('report.col.workDays'),
-      t('report.col.holiday'),
-      t('report.col.absent'),
+      t('report.col.leave'),
       t('report.col.late'),
-      t('report.col.lateMin'),
       t('report.col.ot'),
-      t('report.col.incomplete'),
       t('report.col.swapped'),
       t('report.col.remark'),
     ]
@@ -455,17 +441,14 @@ export default function Summary() {
       r.name,
       r.department,
       r.workDays,
-      r.holiday,
-      r.absent,
+      r.leaveDays,
       r.lateCount,
-      r.lateMinutes,
       r.otHours,
-      r.incomplete,
       r.swapped,
       r.remark || '',
     ])
     downloadExcel(
-      `TimeSwap_Summary_${month}.xlsx`,
+      `${safeFileStem(companyName)}_Summary_${month}.xlsx`,
       t('report.summary'),
       [header, ...rows],
     )
@@ -720,17 +703,7 @@ export default function Summary() {
                         </div>
                       </td>
                       <td className="max-w-[180px] px-4 py-3 text-xs text-slate-500">
-                        {(() => {
-                          const issueLabel = r.issue
-                            ? punchIssueLabel(r.issue, t)
-                            : ''
-                          const parts = []
-                          if (r.remark && r.remark !== issueLabel) {
-                            parts.push(r.remark)
-                          }
-                          if (issueLabel) parts.push(issueLabel)
-                          return parts.join(' · ') || '—'
-                        })()}
+                        {attendanceRemarkText(r, t) || '—'}
                       </td>
                     </tr>
                   )
@@ -790,21 +763,12 @@ export default function Summary() {
                     {t('report.col.workDays')}
                   </th>
                   <th className="px-4 py-3 font-medium">
-                    {t('report.col.holiday')}
-                  </th>
-                  <th className="px-4 py-3 font-medium">
-                    {t('report.col.absent')}
+                    {t('report.col.leave')}
                   </th>
                   <th className="px-4 py-3 font-medium">
                     {t('report.col.late')}
                   </th>
-                  <th className="px-4 py-3 font-medium">
-                    {t('report.col.lateMin')}
-                  </th>
                   <th className="px-4 py-3 font-medium">{t('report.col.ot')}</th>
-                  <th className="px-4 py-3 font-medium">
-                    {t('report.col.incomplete')}
-                  </th>
                   <th className="px-4 py-3 font-medium">
                     {t('report.col.swapped')}
                   </th>
@@ -827,20 +791,9 @@ export default function Summary() {
                     </td>
                     <td className="px-4 py-3 text-slate-700">{r.department}</td>
                     <td className="px-4 py-3">{r.workDays}</td>
-                    <td className="px-4 py-3">{r.holiday}</td>
-                    <td className="px-4 py-3">{r.absent}</td>
+                    <td className="px-4 py-3">{r.leaveDays}</td>
                     <td className="px-4 py-3">{r.lateCount}</td>
-                    <td className="px-4 py-3">{r.lateMinutes}</td>
                     <td className="px-4 py-3">{r.otHours}</td>
-                    <td className="px-4 py-3">
-                      {r.incomplete > 0 ? (
-                        <span className="font-medium text-rose-600">
-                          {r.incomplete}
-                        </span>
-                      ) : (
-                        0
-                      )}
-                    </td>
                     <td className="px-4 py-3">{r.swapped}</td>
                     <td className="w-[180px] max-w-[180px] overflow-hidden px-4 py-3 text-xs text-slate-500">
                       <SummaryRemarkCell
